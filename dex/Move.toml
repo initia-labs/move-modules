@@ -1,0 +1,18 @@
+[package]
+name = "dex"
+version = "0.0.1"
+
+[addresses]
+std = "0x1"
+initia_std = "0x1"
+dex = "_"
+dex_util = "_"
+
+[dev-addresses]
+dex = "0x3"
+dex_util = "0x4"
+
+[dependencies]
+InitiaStdlib = { git = "https://github.com/initia-labs/initiavm.git", subdir = "crates/stdlib/src/initia_stdlib" }
+MoveStdlib = { git = "https://github.com/initia-labs/initiavm.git", subdir = "crates/stdlib/src/move_stdlib" }
+MoveNursery = { git = "https://github.com/initia-labs/initiavm.git", subdir = "crates/stdlib/src/move_nursery" }
