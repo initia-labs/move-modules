@@ -1,0 +1,12 @@
+[package]
+name = "BasicCoin"
+version = "0.0.0"
+
+[dependencies]
+MoveNursery = { git = "https://github.com/initia-labs/initiavm.git", subdir = "crates/stdlib/src/move_nursery", rev = "4e666869dff2b4fcb479b688488a8db68a660b92" }
+InitiaStdlib = { git = "https://github.com/initia-labs/initiavm.git", subdir = "crates/stdlib/src/initia_stdlib", rev = "4e666869dff2b4fcb479b688488a8db68a660b92" }
+
+
+[addresses]
+initia_std = "0x1"
+std = "0x1"
