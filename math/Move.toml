@@ -1,0 +1,13 @@
+[package]
+name = "math"
+version = "0.0.1"
+
+[addresses]
+std = "0x1"
+math = "_"
+
+[dev-addresses]
+math = "0x2"
+
+[dependencies]
+InitiaStdlib = { local = "../../initiavm/crates/stdlib/src/initia_stdlib" }
