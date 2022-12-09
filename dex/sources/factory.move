@@ -42,37 +42,6 @@ module dex_util::factory {
     const MAX_LIMIT: u8 = 30;
 
     /// get all `token_id` from `TokenStore` of user
-    public entry fun pairs<Extension: store + drop + copy>(
-        start_after: Option<String>,
-        limit: u8,
-    ): vector<String> acquires ModuleStore {
-        if (limit > MAX_LIMIT) {
-            limit = MAX_LIMIT;
-        };
-
-        let module_store = borrow_global<ModuleStore>(@dex);
-
-        let pairs_iter = table::iter(
-            &module_store.pairs,
-            option::none(),
-            start_after,
-            2,
-        );
-
-        let prepare = table::prepare<String, bool>(&mut pairs_iter);
-        let res: vector<String> = vector[];
-
-        while (vector::length(&res) < (limit as u64) && prepare) {
-            let (name, _) = table::next<String, bool>(&mut pairs_iter);
-            
-            vector::push_back(&mut res, name);
-            prepare = table::prepare<String, bool>(&mut pairs_iter);
-        };
-
-        res
-    }
-
-     /// get all `token_id` from `TokenStore` of user
     public entry fun get_pairs(
         start_after: Option<String>,
         limit: u8,
