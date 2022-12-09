@@ -4,10 +4,10 @@ module dex_util::factory {
     use std::vector;
     use std::string::{Self, String};
     use std::error;
+    use std::option::{Self, Option};
     use std::comparator;
     
     use initia_std::type_info;
-    use initia_std::coin;
 
     use dex::pair;
 
@@ -21,8 +21,7 @@ module dex_util::factory {
     struct LiquidityToken<phantom Coin0, phantom Coin1> { }
 
     struct ModuleStore has key {
-        // Key: Coin0 + Coin1
-        pairs: Table<vector<u8>, bool>,
+        pairs: Table<String, bool>,
     }
 
     struct CapabilityStore<phantom LiquidityToken> has key {
@@ -35,10 +34,74 @@ module dex_util::factory {
     
     public entry fun pair_exist<Coin0, Coin1>(): bool acquires ModuleStore {
         let module_store = borrow_global_mut<ModuleStore>(@dex_util);
-        let pool_key = gen_pool_key<Coin0, Coin1>();
+        let pool_key = pair_name<Coin0, Coin1>();
 
         table::contains(&module_store.pairs, pool_key)
-    } 
+    }
+
+    const MAX_LIMIT: u8 = 30;
+
+    /// get all `token_id` from `TokenStore` of user
+    public entry fun pairs<Extension: store + drop + copy>(
+        start_after: Option<String>,
+        limit: u8,
+    ): vector<String> acquires ModuleStore {
+        if (limit > MAX_LIMIT) {
+            limit = MAX_LIMIT;
+        };
+
+        let module_store = borrow_global<ModuleStore>(@dex);
+
+        let pairs_iter = table::iter(
+            &module_store.pairs,
+            option::none(),
+            start_after,
+            2,
+        );
+
+        let prepare = table::prepare<String, bool>(&mut pairs_iter);
+        let res: vector<String> = vector[];
+
+        while (vector::length(&res) < (limit as u64) && prepare) {
+            let (name, _) = table::next<String, bool>(&mut pairs_iter);
+            
+            vector::push_back(&mut res, name);
+            prepare = table::prepare<String, bool>(&mut pairs_iter);
+        };
+
+        res
+    }
+
+     /// get all `token_id` from `TokenStore` of user
+    public entry fun get_pairs(
+        start_after: Option<String>,
+        limit: u8,
+    ): vector<String> acquires ModuleStore {
+        if (limit > MAX_LIMIT) {
+            limit = MAX_LIMIT;
+        };
+
+        let module_store = borrow_global<ModuleStore>(@dex);
+
+        let pairs_iter = table::iter(
+            &module_store.pairs,
+            option::none(),
+            start_after,
+            2,
+        );
+
+        let prepare = table::prepare<String, bool>(&mut pairs_iter);
+        let res: vector<String> = vector[];
+
+        while (vector::length(&res) < (limit as u64) && prepare) {
+            let (name, _) = table::next<String, bool>(&mut pairs_iter);
+            
+            vector::push_back(&mut res, name);
+            prepare = table::prepare<String, bool>(&mut pairs_iter);
+        };
+
+        res
+    }
 
     ///
     /// Execute entry functions
@@ -54,6 +117,23 @@ module dex_util::factory {
         move_to(account, store);
     }
 
+    fun pair_name<Coin0, Coin1>(): String {
+        let type_name1 = type_info::type_name<Coin0>();
+        let type_name2 = type_info::type_name<Coin1>();
+
+        let compare = comparator::compare<vector<u8>>(string::bytes(&type_name1), string::bytes(&type_name2));
+
+        assert!(!comparator::is_equal(&compare), error::invalid_argument(ESAME_COIN_TYPE));
+
+        let name = if (comparator::is_greater_than(&compare)) {
+            type_info::type_name<LiquidityToken<Coin0, Coin1>>()
+        } else {
+            type_info::type_name<LiquidityToken<Coin1, Coin0>>()
+        };
+
+        return name
+    }
+
     public entry fun create_pair<Coin0, Coin1>(
         account: &signer,
         fee_rate: String,
@@ -61,14 +141,11 @@ module dex_util::factory {
         assert!(@dex_util == signer::address_of(account), error::permission_denied(EUNAUTHORIZED));
 
         let module_store = borrow_global_mut<ModuleStore>(@dex_util);
-        let pool_key = gen_pool_key<Coin0, Coin1>();
+        let name = pair_name<Coin0, Coin1>();
 
-        assert!(!table::contains(&module_store.pairs, pool_key), error::already_exists(EPOOL_ALREADY_EXIST));
-        table::add(
-            &mut module_store.pairs,
-            pool_key,
-            true,
-        );
+        assert!(!table::contains(&module_store.pairs, name), error::already_exists(EPOOL_ALREADY_EXIST));
+
+        table::add(&mut module_store.pairs, name, true);
 
         let type_name1 = type_info::type_name<Coin0>();
         let type_name2 = type_info::type_name<Coin1>();
@@ -81,9 +158,6 @@ module dex_util::factory {
             let cap = pair::create_pool<Coin0, Coin1, LiquidityToken<Coin1, Coin0>>(account, fee_rate);
             move_to(account, CapabilityStore { cap })
         };
-
-        let cap = pair::create_pool<Coin0, Coin1, LiquidityToken<Coin0, Coin1>>(account, fee_rate);
-        move_to(account, CapabilityStore { cap })
     }
 
     public entry fun update_fee_rate<Coin0, Coin1>(
@@ -93,36 +167,17 @@ module dex_util::factory {
         assert!(@dex_util == signer::address_of(account), error::permission_denied(EUNAUTHORIZED));
 
         let module_store = borrow_global_mut<ModuleStore>(@dex_util);
-        let pool_key = gen_pool_key<Coin0, Coin1>();
+        let name = pair_name<Coin0, Coin1>();
 
-        assert!(table::contains(&module_store.pairs, pool_key), error::not_found(EPOOL_NOT_FOUND));
+        assert!(table::contains(&module_store.pairs, name), error::not_found(EPOOL_NOT_FOUND));
 
         let cap_store = borrow_global<CapabilityStore<LiquidityToken<Coin0, Coin1>>>(@dex_util);
 
         pair::update_fee_rate<Coin0, Coin1, LiquidityToken<Coin0, Coin1>>(account, new_fee_rate, &cap_store.cap);
     }
 
-    /// generate pool key
-    fun gen_pool_key<Coin0, Coin1>(): vector<u8> {
-        let type_name1 = type_info::type_name<Coin0>();
-        let type_name2 = type_info::type_name<Coin1>();
-
-        let compare = comparator::compare<vector<u8>>(string::bytes(&type_name1), string::bytes(&type_name2));
-
-        assert!(!comparator::is_equal(&compare), error::invalid_argument(ESAME_COIN_TYPE));
-
-        let key: vector<u8>;
-
-        if (comparator::is_greater_than(&compare)) {
-            key = *string::bytes(&type_name1);
-            vector::append(&mut key, *string::bytes(&type_name2));
-        } else {
-            key = *string::bytes(&type_name2);
-            vector::append(&mut key, *string::bytes(&type_name1));
-        };
-
-        return key
-    }
+    #[test_only]
+    use initia_std::coin;
 
     #[test_only]
     struct CoinA { }
@@ -165,8 +220,12 @@ module dex_util::factory {
 
         assert!(pair_exist<CoinA, CoinB>(), 0);
 
-        let (amount0, amount1, liquidity) = pair::pair_state<CoinB, CoinA, LiquidityToken<CoinB, CoinA>>();
-        assert!(amount0 + amount1 == 0 && liquidity == 0, 1);
+        let res = pair::pair_state<CoinB, CoinA, LiquidityToken<CoinB, CoinA>>();
+        assert!(
+            pair::coin0_amount_from_pair_state_res(&res) + pair::coin1_amount_from_pair_state_res(&res) == 0 
+                && pair::total_liquidity_from_pair_state_res(&res) == 0,
+            1
+        );
 
         // clear
         move_to(&creator, CoinCaps<CoinA> {

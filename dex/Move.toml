@@ -13,6 +13,6 @@ dex = "0x3"
 dex_util = "0x4"
 
 [dependencies]
-InitiaStdlib = { git = "https://github.com/initia-labs/initiavm.git", subdir = "crates/stdlib/src/initia_stdlib" }
-MoveStdlib = { git = "https://github.com/initia-labs/initiavm.git", subdir = "crates/stdlib/src/move_stdlib" }
-MoveNursery = { git = "https://github.com/initia-labs/initiavm.git", subdir = "crates/stdlib/src/move_nursery" }
+InitiaStdlib = { local = "../../initiavm/crates/stdlib/src/initia_stdlib" }
+MoveStdlib = { local = "../../initiavm/crates/stdlib/src/move_stdlib" }
+MoveNursery = { local = "../../initiavm/crates/stdlib/src/move_nursery" }

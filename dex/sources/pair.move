@@ -67,6 +67,12 @@ module dex::pair {
         coin1_withdraw_amount: u64,
     }
 
+    struct PairStateResponse has drop {
+        coin0_amount: u64,
+        coin1_amount: u64,
+        total_liquidity: u128,
+    }
+
     ///
     /// Query entry functions
     /// 
@@ -77,19 +83,34 @@ module dex::pair {
     }
 
     // return (coin0_amount, coin1_amount, total_liquidity)
-    public entry fun pair_state<Coin0, Coin1, LpToken>(): (u64, u64, u128) acquires PairInfo {
+    public entry fun pair_state<Coin0, Coin1, LpToken>(): PairStateResponse acquires PairInfo {
         let type_info = type_info::type_of<LpToken>();
         let pair_owner = type_info::account_address(&type_info);
         let pair = borrow_global<PairInfo<Coin0, Coin1, LpToken>>(pair_owner);
         let total_liquidity = coin::supply<LpToken>();
 
-        (coin::value(&pair.coin0), coin::value(&pair.coin1), total_liquidity)
+        PairStateResponse {
+            coin0_amount: coin::value(&pair.coin0),
+            coin1_amount: coin::value(&pair.coin1),
+            total_liquidity
+        }
     }
 
-    // return (total_return_amount, total_commission_amount)
+    public fun coin0_amount_from_pair_state_res(res: &PairStateResponse): u64 {
+        res.coin0_amount
+    }
+
+    public fun coin1_amount_from_pair_state_res(res: &PairStateResponse): u64 {
+        res.coin1_amount
+    }
+
+    public fun total_liquidity_from_pair_state_res(res: &PairStateResponse): u128 {
+        res.total_liquidity
+    }
+
     public entry fun swap_simulation<OfferCoin, ReturnCoin, LpToken>(
         offer_amount: u64
-    ): (u64, u64) acquires PairInfo {
+    ): u64 acquires PairInfo {
         let type_info = type_info::type_of<LpToken>();
         let pair_owner = type_info::account_address(&type_info);
 
@@ -98,11 +119,13 @@ module dex::pair {
         if (comparator::is_greater_than(&compare)) {
             let pair = borrow_global_mut<PairInfo<OfferCoin, ReturnCoin, LpToken>>(pair_owner);
             let offer_coin_index = 0;
-            swap_calculation(pair, offer_amount, offer_coin_index)
+            let (res, _) = swap_calculation(pair, offer_amount, offer_coin_index);
+            res
         } else {
             let pair = borrow_global_mut<PairInfo<ReturnCoin, OfferCoin, LpToken>>(pair_owner);
             let offer_coin_index = 1;
-            swap_calculation(pair, offer_amount, offer_coin_index)
+            let (res, _) = swap_calculation(pair, offer_amount, offer_coin_index);
+            res
         }
     }
 
@@ -155,9 +178,10 @@ module dex::pair {
             move_to<PairEvents>(account, pair_events)
         };
     }
+    
 
     /// provide liquidity
-    public entry fun provie_liquidity<Coin0, Coin1, LpToken>(
+    public entry fun provide_liquidity<Coin0, Coin1, LpToken>(
         account: &signer,
         coin0_amount: u64,
         coin1_amount: u64,
@@ -516,22 +540,22 @@ module dex::pair {
         let change_fee_cap = create_pool<CoinA, CoinB, LpToken>(&creator, string::utf8(b"0.003"));
 
         // provide_test
-        provie_liquidity<CoinB, CoinA, LpToken>(&user, 1000000, 1000000, 9000);
+        provide_liquidity<CoinB, CoinA, LpToken>(&user, 1000000, 1000000, 9000);
 
-        let (amount0, amount1, liquidity) = pair_state<CoinB, CoinA, LpToken>();
-        assert!(amount0 == 1000000, 0);
-        assert!(amount1 == 1000000, 1);
-        assert!(liquidity == 1000000, 2);
+        let PairStateResponse { coin0_amount, coin1_amount, total_liquidity } = pair_state<CoinB, CoinA, LpToken>();
+        assert!(coin0_amount == 1000000, 0);
+        assert!(coin1_amount == 1000000, 1);
+        assert!(total_liquidity == 1000000, 2);
 
         assert!(coin::balance<LpToken>(user_address) == 1000000, 3);
 
         // swap CoinA to CoinB
         swap<CoinA, CoinB, LpToken>(&user, 1000);
 
-        let (amount0, amount1, liquidity) = pair_state<CoinB, CoinA, LpToken>();
-        assert!(amount0 == 999003, 4);
-        assert!(amount1 == 1001000, 5);
-        assert!(liquidity == 1000000, 6);
+        let PairStateResponse { coin0_amount, coin1_amount, total_liquidity } = pair_state<CoinB, CoinA, LpToken>();
+        assert!(coin0_amount == 999003, 4);
+        assert!(coin1_amount == 1001000, 5);
+        assert!(total_liquidity == 1000000, 6);
 
         assert!(coin::balance<CoinA>(user_address) == 1000000000000000 - 1001000, 7);
         assert!(coin::balance<CoinB>(user_address) == 1000000000000000 - 999003, 8);
@@ -539,10 +563,10 @@ module dex::pair {
         // withdraw
         withdraw_liquidity<CoinB, CoinA, LpToken>(&user, 500000);
 
-        let (amount0, amount1, liquidity) = pair_state<CoinB, CoinA, LpToken>();
-        assert!(amount0 == 499502, 9);
-        assert!(amount1 == 500500, 10);
-        assert!(liquidity == 500000, 11);
+        let PairStateResponse { coin0_amount, coin1_amount, total_liquidity } = pair_state<CoinB, CoinA, LpToken>();
+        assert!(coin0_amount == 499502, 9);
+        assert!(coin1_amount == 500500, 10);
+        assert!(total_liquidity == 500000, 11);
 
         assert!(coin::balance<CoinA>(user_address) == 1000000000000000 - 500500, 12);
         assert!(coin::balance<CoinB>(user_address) == 1000000000000000 - 499502, 13);
@@ -603,15 +627,15 @@ module dex::pair {
         coin::deposit<CoinB>(source_addr, coin::mint<CoinB>(1000000000000000, &coinb_mint_cap));
 
         // provide
-        provie_liquidity<CoinB, CoinA, LpToken>(&source, 1000000, 1000000, 9000);
+        provide_liquidity<CoinB, CoinA, LpToken>(&source, 1000000, 1000000, 9000);
 
         // provide
-        provie_liquidity<CoinB, CoinA, LpToken>(&source, 2000000, 1000000, 9000); // 1000000 CoinB will be returned
+        provide_liquidity<CoinB, CoinA, LpToken>(&source, 2000000, 1000000, 9000); // 1000000 CoinB will be returned
 
-        let (amount0, amount1, liquidity) = pair_state<CoinB, CoinA, LpToken>();
-        assert!(amount0 == 2000000, 0);
-        assert!(amount1 == 2000000, 1);
-        assert!(liquidity == 2000000, 2);
+        let PairStateResponse { coin0_amount, coin1_amount, total_liquidity } = pair_state<CoinB, CoinA, LpToken>();
+        assert!(coin0_amount == 2000000, 0);
+        assert!(coin1_amount == 2000000, 1);
+        assert!(total_liquidity == 2000000, 2);
 
         move_to(&source, FeeCapWraper<LpToken> {
             cap: change_fee_cap,
@@ -647,15 +671,15 @@ module dex::pair {
         coin::deposit<CoinB>(source_addr, coin::mint<CoinB>(1000000000000000, &coinb_mint_cap));
 
         // provide
-        provie_liquidity<CoinB, CoinA, LpToken>(&source, 1000000, 1000000, 9000);
+        provide_liquidity<CoinB, CoinA, LpToken>(&source, 1000000, 1000000, 9000);
 
         // withdraw
         withdraw_liquidity<CoinB, CoinA, LpToken>(&source, 200000);
 
-        let (amount0, amount1, liquidity) = pair_state<CoinB, CoinA, LpToken>();
-        assert!(amount0 == 800000, 0);
-        assert!(amount1 == 800000, 1);
-        assert!(liquidity == 800000, 2);
+        let PairStateResponse { coin0_amount, coin1_amount, total_liquidity } = pair_state<CoinB, CoinA, LpToken>();
+        assert!(coin0_amount == 800000, 0);
+        assert!(coin1_amount == 800000, 1);
+        assert!(total_liquidity == 800000, 2);
 
         assert!(coin::balance<CoinA>(source_addr) == 1000000000000000 - 800000, 3);
         assert!(coin::balance<CoinB>(source_addr) == 1000000000000000 - 800000, 4);

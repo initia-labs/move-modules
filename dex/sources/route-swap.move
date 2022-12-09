@@ -95,7 +95,9 @@ module dex_util::route_swap {
 
     #[test_only]
     use std::string; 
+    #[test_only]
     use dex_util::factory;
+    #[test_only]
     use dex_util::factory::LiquidityToken;
 
     #[test(creator = @dex_util)]
@@ -127,9 +129,9 @@ module dex_util::route_swap {
 
         pair::register(&creator);
 
-        pair::provie_liquidity<CoinB, CoinA, LiquidityToken<CoinB, CoinA>>(&creator, 1000000, 1000000, 9000);
-        pair::provie_liquidity<CoinC, CoinB, LiquidityToken<CoinC, CoinB>>(&creator, 1000000, 1000000, 9000);
-        pair::provie_liquidity<CoinD, CoinC, LiquidityToken<CoinD, CoinC>>(&creator, 1000000, 1000000, 9000);
+        pair::provide_liquidity<CoinB, CoinA, LiquidityToken<CoinB, CoinA>>(&creator, 1000000, 1000000, 9000);
+        pair::provide_liquidity<CoinC, CoinB, LiquidityToken<CoinC, CoinB>>(&creator, 1000000, 1000000, 9000);
+        pair::provide_liquidity<CoinD, CoinC, LiquidityToken<CoinD, CoinC>>(&creator, 1000000, 1000000, 9000);
 
         // execute 3 msgs at once
         swap<CoinA, CoinB, LiquidityToken<CoinB, CoinA>>(&creator, true, 1000, false, 0);
