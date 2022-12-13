@@ -96,6 +96,10 @@ module dex::pair {
         }
     }
 
+    public entry fun is_account_registered(account: address): bool {
+        exists<PairEvents>(account)
+    }
+
     public fun coin0_amount_from_pair_state_res(res: &PairStateResponse): u64 {
         res.coin0_amount
     }
@@ -119,13 +123,13 @@ module dex::pair {
         if (comparator::is_greater_than(&compare)) {
             let pair = borrow_global_mut<PairInfo<OfferCoin, ReturnCoin, LpToken>>(pair_owner);
             let offer_coin_index = 0;
-            let (res, _) = swap_calculation(pair, offer_amount, offer_coin_index);
-            res
+            let (total_return, fee) = swap_calculation(pair, offer_amount, offer_coin_index);
+            total_return - fee
         } else {
             let pair = borrow_global_mut<PairInfo<ReturnCoin, OfferCoin, LpToken>>(pair_owner);
             let offer_coin_index = 1;
-            let (res, _) = swap_calculation(pair, offer_amount, offer_coin_index);
-            res
+            let (total_return, fee) = swap_calculation(pair, offer_amount, offer_coin_index);
+            total_return - fee
         }
     }
 
