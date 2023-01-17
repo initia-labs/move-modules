@@ -1,5 +1,5 @@
 [package]
-name = "BasicCoin"
+name = "NftController"
 version = "0.0.0"
 
 [dependencies]
