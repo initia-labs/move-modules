@@ -3,10 +3,11 @@ name = "BasicCoin"
 version = "0.0.0"
 
 [dependencies]
-MoveNursery = { git = "https://github.com/initia-labs/initiavm.git", subdir = "crates/stdlib/src/move_nursery", rev = "4e666869dff2b4fcb479b688488a8db68a660b92" }
-InitiaStdlib = { git = "https://github.com/initia-labs/initiavm.git", subdir = "crates/stdlib/src/initia_stdlib", rev = "4e666869dff2b4fcb479b688488a8db68a660b92" }
+MoveNursery = { git = "https://github.com/initia-labs/initiavm.git", subdir = "crates/stdlib/src/move_nursery", rev = "9f2ba81a7a77e6e60eec67b235537ba25f5495ff" }
+InitiaStdlib = { git = "https://github.com/initia-labs/initiavm.git", subdir = "crates/stdlib/src/initia_stdlib", rev = "9f2ba81a7a77e6e60eec67b235537ba25f5495ff" }
 
 
 [addresses]
 initia_std = "0x1"
 std = "0x1"
+your_address = "0xe5271dfd0c728c6e09e09506d75f300f290a0658"
