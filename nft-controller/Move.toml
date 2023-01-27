@@ -3,8 +3,8 @@ name = "NftController"
 version = "0.0.0"
 
 [dependencies]
-MoveNursery = { git = "https://github.com/initia-labs/initiavm.git", subdir = "crates/stdlib/src/move_nursery", rev = "9f2ba81a7a77e6e60eec67b235537ba25f5495ff" }
-InitiaStdlib = { git = "https://github.com/initia-labs/initiavm.git", subdir = "crates/stdlib/src/initia_stdlib", rev = "9f2ba81a7a77e6e60eec67b235537ba25f5495ff" }
+MoveNursery = { git = "https://github.com/initia-labs/initiavm.git", subdir = "crates/stdlib/src/move_nursery", rev = "fb7b3a31854e8902bee3f6c089488c2b892c424e" }
+InitiaStdlib = { git = "https://github.com/initia-labs/initiavm.git", subdir = "crates/stdlib/src/initia_stdlib", rev = "fb7b3a31854e8902bee3f6c089488c2b892c424e" }
 
 
 [addresses]

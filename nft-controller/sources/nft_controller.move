@@ -14,7 +14,7 @@ module your_address::nft_controller {
 
     public entry fun initialize(account: &signer) {
         let mint_cap
-            = nft::make_collection<Metadata>(account, string::utf8(b"my nft"), string::utf8(b"MNFT"), false);
+            = nft::make_collection<Metadata>(account, string::utf8(b"my nft"), string::utf8(b"MNFT"), string::utf8(b"https://initia.co"), false);
 
         let caps = Capabilities { mint_cap };
         move_to(account, caps);    
