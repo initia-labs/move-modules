@@ -1,0 +1,14 @@
+[package]
+name = "liquid_staking"
+version = "0.0.1"
+
+[addresses]
+std = "0x1"
+liquid_staking = "0xfa5f07319724580ef16dcef6ce4d3b0bd0348e48"
+
+[dev-addresses]
+liquid_staking = "0x2"
+
+[dependencies]
+MoveNursery = { git = "https://github.com/initia-labs/initiavm.git", subdir = "crates/stdlib/src/move_nursery", rev = "6656a5442330e92f65c8ca946b4d15f5b51678e1" }
+InitiaStdlib = { git = "https://github.com/initia-labs/initiavm.git", subdir = "crates/stdlib/src/initia_stdlib", rev = "6656a5442330e92f65c8ca946b4d15f5b51678e1" }
