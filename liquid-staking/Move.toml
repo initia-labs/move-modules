@@ -4,7 +4,7 @@ version = "0.0.1"
 
 [addresses]
 std = "0x1"
-liquid_staking = "0xfa5f07319724580ef16dcef6ce4d3b0bd0348e48"
+liquid_staking = "_"
 
 [dev-addresses]
 liquid_staking = "0x2"
