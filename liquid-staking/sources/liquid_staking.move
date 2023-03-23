@@ -6,7 +6,7 @@ module liquid_staking::liquid_staking {
     
     use initia_std::coin::{Self, Coin};
     use initia_std::decimal128;
-    use initia_std::dex::{Self, LP};
+    use initia_std::dex;
     use initia_std::native_uinit::Coin as RewardCoin;
     use initia_std::staking::{Self, Delegation, Unbonding};
 
@@ -37,16 +37,16 @@ module liquid_staking::liquid_staking {
 
     /// Owner functions
 
-    public entry fun add_bond_coin<CounterPartCoin>(account: &signer, validator: String) {
+    public entry fun add_bond_coin<LiquidityToken>(account: &signer, validator: String) {
         check_is_owner(account);
-        assert!(!exists<DelegationStore<LP<CounterPartCoin>>>(@liquid_staking), error::already_exists(EDELEGATION_STORE_ALREADY_EXISTS));
+        assert!(!exists<DelegationStore<LiquidityToken>>(@liquid_staking), error::already_exists(EDELEGATION_STORE_ALREADY_EXISTS));
 
         let (burn_cap, freeze_cap, mint_cap)
-            = coin::initialize<LiquidStakingToken<LP<CounterPartCoin>>>(account, string::utf8(b"liquid staking token"), string::utf8(b"LST"), 6);
+            = coin::initialize<LiquidStakingToken<LiquidityToken>>(account, string::utf8(b"liquid staking token"), string::utf8(b"LST"), 6);
 
-        let caps = Capabilities<LP<CounterPartCoin>> { burn_cap, freeze_cap, mint_cap };
-        let delegation_store = DelegationStore<LP<CounterPartCoin>> {
-            delegation: staking::empty_delegation<LP<CounterPartCoin>>(validator),
+        let caps = Capabilities<LiquidityToken> { burn_cap, freeze_cap, mint_cap };
+        let delegation_store = DelegationStore<LiquidityToken> {
+            delegation: staking::empty_delegation<LiquidityToken>(validator),
             rewards: coin::zero(),
             caps,
         };
@@ -57,51 +57,51 @@ module liquid_staking::liquid_staking {
     /// execute functions
 
     /// reinvest reward
-    public entry fun reinvest<CounterPartCoin>(account: &signer) acquires DelegationStore {
-        let delegation_store = borrow_global_mut<DelegationStore<LP<CounterPartCoin>>>(@liquid_staking);
+    public entry fun reinvest<CoinA, CoinB, LiquidityToken>(account: &signer) acquires DelegationStore {
+        let delegation_store = borrow_global_mut<DelegationStore<LiquidityToken>>(@liquid_staking);
         let reward_amount =  coin::value(&delegation_store.rewards);
         let reward = coin::extract(&mut delegation_store.rewards, reward_amount);
         let validator = staking::get_validator_from_delegation(&delegation_store.delegation);
-        let bond_coin = dex::single_asset_provide_liquidity<CounterPartCoin, RewardCoin>(account, reward, option::none());
+        let bond_coin = dex::single_asset_provide_liquidity<CoinA, CoinB, LiquidityToken, RewardCoin>(account, reward, option::none());
         let delegation = staking::delegate(validator, bond_coin);
 
         let reward = staking::merge_delegation(&mut delegation_store.delegation, delegation);
         coin::merge(&mut delegation_store.rewards, reward);
     }
 
-    public entry fun bond_script<CounterPartCoin>(account: &signer, amount: u64) acquires DelegationStore {
+    public entry fun bond_script<LiquidityToken>(account: &signer, amount: u64) acquires DelegationStore {
         let addr = signer::address_of(account);
         assert!(amount != 1, 1);
-        let bond_coin = coin::withdraw<LP<CounterPartCoin>>(account, amount);
+        let bond_coin = coin::withdraw<LiquidityToken>(account, amount);
         assert!(amount != 2, 2);
         let lst = bond(bond_coin);
         assert!(amount != 3, 3);
-        if (!coin::is_account_registered<LiquidStakingToken<LP<CounterPartCoin>>>(addr)) {
-            coin::register<LiquidStakingToken<LP<CounterPartCoin>>>(account);
+        if (!coin::is_account_registered<LiquidStakingToken<LiquidityToken>>(addr)) {
+            coin::register<LiquidStakingToken<LiquidityToken>>(account);
         };
         assert!(amount != 4, 4);
 
-        coin::deposit<LiquidStakingToken<LP<CounterPartCoin>>>(addr, lst);
+        coin::deposit<LiquidStakingToken<LiquidityToken>>(addr, lst);
         assert!(amount != 11, 11);
     }
 
-    public entry fun unbond_script<CounterPartCoin>(account: &signer, amount: u64) acquires DelegationStore {
+    public entry fun unbond_script<LiquidityToken>(account: &signer, amount: u64) acquires DelegationStore {
         let addr = signer::address_of(account);
-        let lst = coin::withdraw<LiquidStakingToken<LP<CounterPartCoin>>>(account, amount);
-        let unbonding = unbond<CounterPartCoin>(lst);
-        if (!staking::is_account_registered<LiquidStakingToken<LP<CounterPartCoin>>>(addr)) {
-            staking::register<LiquidStakingToken<LP<CounterPartCoin>>>(account);
+        let lst = coin::withdraw<LiquidStakingToken<LiquidityToken>>(account, amount);
+        let unbonding = unbond<LiquidityToken>(lst);
+        if (!staking::is_account_registered<LiquidStakingToken<LiquidityToken>>(addr)) {
+            staking::register<LiquidStakingToken<LiquidityToken>>(account);
         };
 
         staking::deposit_unbonding(addr, unbonding);
     }
 
     /// Bond bond coin and get liquid staking token
-    public fun bond<CounterPartCoin>(
-        bond_coin: Coin<LP<CounterPartCoin>>
-    ): Coin<LiquidStakingToken<LP<CounterPartCoin>>> acquires DelegationStore {
-        let delegation_store = borrow_global_mut<DelegationStore<LP<CounterPartCoin>>>(@liquid_staking);
-        let total_supply = coin::supply<LiquidStakingToken<LP<CounterPartCoin>>>();
+    public fun bond<LiquidityToken>(
+        bond_coin: Coin<LiquidityToken>
+    ): Coin<LiquidStakingToken<LiquidityToken>> acquires DelegationStore {
+        let delegation_store = borrow_global_mut<DelegationStore<LiquidityToken>>(@liquid_staking);
+        let total_supply = coin::supply<LiquidStakingToken<LiquidityToken>>();
         let total_share = staking::get_share_from_delegation(&delegation_store.delegation);
         let validator = staking::get_validator_from_delegation(&delegation_store.delegation);
         let delegation = staking::delegate(validator, bond_coin);
@@ -120,11 +120,11 @@ module liquid_staking::liquid_staking {
         coin::mint(mint_amount, &delegation_store.caps.mint_cap)
     }
 
-    public fun unbond<CounterPartCoin>(
-        lst: Coin<LiquidStakingToken<LP<CounterPartCoin>>>
-    ): Unbonding<LP<CounterPartCoin>> acquires DelegationStore {
-        let delegation_store = borrow_global_mut<DelegationStore<LP<CounterPartCoin>>>(@liquid_staking);
-        let total_supply = coin::supply<LiquidStakingToken<LP<CounterPartCoin>>>();
+    public fun unbond<LiquidityToken>(
+        lst: Coin<LiquidStakingToken<LiquidityToken>>
+    ): Unbonding<LiquidityToken> acquires DelegationStore {
+        let delegation_store = borrow_global_mut<DelegationStore<LiquidityToken>>(@liquid_staking);
+        let total_supply = coin::supply<LiquidStakingToken<LiquidityToken>>();
         let share_ratio = decimal128::from_ratio((coin::value(&lst) as u128), total_supply);
         let unbond_share_amount = decimal128::mul(&share_ratio, total_supply);
 

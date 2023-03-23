@@ -80,7 +80,7 @@ module dex_util::factory {
         assert!(@dex_util == signer::address_of(account), error::permission_denied(EUNAUTHORIZED));
         
         let store = ModuleStore {
-            pairs: table::new(account),
+            pairs: table::new(),
         };
 
         move_to(account, store);

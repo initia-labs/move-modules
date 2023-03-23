@@ -237,7 +237,7 @@ module dex_util::staking {
     }
 
     #[test_only]
-    use std::unit_test::set_block_info_for_testing;
+    use std::block::set_block_info;
 
     // TODO: add test
     #[test(owner = @dex_util, user = @0x1234)]
@@ -250,7 +250,7 @@ module dex_util::staking {
         let (reward_coin_burn_cap, reward_coin_freeze_cap, reward_coin_mint_cap) = initialized_coin<RewardCoin>(&owner);
         let (lp_token_burn_cap, lp_token_freeze_cap, lp_token_mint_cap) = initialized_coin<LpToken>(&owner);
 
-        set_block_info_for_testing(100, 5000);
+        set_block_info(100, 5000);
 
         coin::register<RewardCoin>(&owner);
         coin::register<RewardCoin>(&user);
@@ -265,21 +265,21 @@ module dex_util::staking {
         staking<RewardCoin, LpToken>(&user, 100);
 
         assert!(claimable_amount<RewardCoin, LpToken>(user_address) == 0, 1);
-        set_block_info_for_testing(200, 6500);
+        set_block_info(200, 6500);
         assert!(claimable_amount<RewardCoin, LpToken>(user_address) == 500, 2);
-        set_block_info_for_testing(300, 7500);
+        set_block_info(300, 7500);
         assert!(claimable_amount<RewardCoin, LpToken>(user_address) == 2000, 3);
-        set_block_info_for_testing(400, 9000);
+        set_block_info(400, 9000);
         assert!(claimable_amount<RewardCoin, LpToken>(user_address) == 3000, 4);
 
-        set_block_info_for_testing(200, 6500);
+        set_block_info(200, 6500);
         claim<RewardCoin, LpToken>(&user);
         assert!(claimable_amount<RewardCoin, LpToken>(user_address) == 0, 5);
         assert!(coin::balance<RewardCoin>(user_address) == 500, 6);
 
         withdraw<RewardCoin, LpToken>(&user, 50);
         staking<RewardCoin, LpToken>(&owner, 50);
-        set_block_info_for_testing(250, 7000);
+        set_block_info(250, 7000);
         assert!(claimable_amount<RewardCoin, LpToken>(user_address) == 250, 7);
         assert!(claimable_amount<RewardCoin, LpToken>(owner_address) == 250, 8);
 
@@ -366,7 +366,7 @@ module dex_util::staking {
         let (reward_coin_burn_cap, reward_coin_freeze_cap, reward_coin_mint_cap) = initialized_coin<RewardCoin>(&owner);
         let (lp_token_burn_cap, lp_token_freeze_cap, lp_token_mint_cap) = initialized_coin<LpToken>(&owner);
 
-        set_block_info_for_testing(400, 9000);
+        set_block_info(400, 9000);
 
         coin::register<RewardCoin>(&owner);
         coin::deposit<RewardCoin>(owner_address, coin::mint<RewardCoin>(1000000000000000, &reward_coin_mint_cap));

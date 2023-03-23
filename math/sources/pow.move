@@ -2,7 +2,7 @@ module math::pow {
     use std::vector;
     use std::error;
 
-    use initia_std::decimal::{Self, Decimal};
+    use initia_std::decimal128::{Self as decimal, Decimal128 as Decimal};
 
     const EOUT_OF_BASE_RANGE: u64 = 0;
 

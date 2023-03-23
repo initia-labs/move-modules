@@ -10,4 +10,7 @@ math = "_"
 math = "0x2"
 
 [dependencies]
-InitiaStdlib = { local = "../../initiavm/crates/stdlib/src/initia_stdlib" }
+MoveStdlib = { git = "https://github.com/initia-labs/initiavm.git", subdir = "crates/stdlib/src/move_stdlib", rev = "f9581dde6e0f73449d804749681cf512aa54a1e5" }
+MoveNursery = { git = "https://github.com/initia-labs/initiavm.git", subdir = "crates/stdlib/src/move_nursery", rev = "f9581dde6e0f73449d804749681cf512aa54a1e5" }
+InitiaStdlib = { git = "https://github.com/initia-labs/initiavm.git", subdir = "crates/stdlib/src/initia_stdlib", rev = "f9581dde6e0f73449d804749681cf512aa54a1e5" }
+

@@ -9,7 +9,7 @@ module your_address::nft_controller {
     }
 
     struct Capabilities has key {
-        mint_cap: nft::MintCapability<Metadata>,
+        mint_cap: nft::Capability<Metadata>,
     }
 
     public entry fun initialize(account: &signer) {
@@ -31,6 +31,8 @@ module your_address::nft_controller {
         let addr = signer::address_of(account);
         let caps = borrow_global<Capabilities>(addr);
         let meta = Metadata { numeric_value, string_value };
-        nft::mint<Metadata>(account, to, token_id, token_uri, meta, &caps.mint_cap);
+        let nft = nft::mint<Metadata>(account, token_id, token_uri, meta, &caps.mint_cap);
+        // make sure that `to` is registered
+        nft::deposit<Metadata>(to, nft);
     }
 }
