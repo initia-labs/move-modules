@@ -11,7 +11,7 @@ module your_address::basic_coin {
         mint_cap: coin::MintCapability<Coin>,
     }
 
-    public entry fun initialize(account: &signer) {
+    fun init_module(account: &signer) {
         let (burn_cap, freeze_cap, mint_cap)
             = coin::initialize<Coin>(account, string::utf8(b"basic coin"), string::utf8(b"BASIC"), 6);
 
