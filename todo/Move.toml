@@ -1,0 +1,13 @@
+[package]
+name = "todo"
+version = "0.0.0"
+
+[dependencies]
+MoveNursery = { git = "https://github.com/initia-labs/initiavm.git", subdir = "crates/stdlib/src/move_nursery", rev = "f9581dde6e0f73449d804749681cf512aa54a1e5" }
+InitiaStdlib = { git = "https://github.com/initia-labs/initiavm.git", subdir = "crates/stdlib/src/initia_stdlib", rev = "f9581dde6e0f73449d804749681cf512aa54a1e5" }
+
+
+[addresses]
+initia_std = "0x1"
+std = "0x1"
+todolist_addr = "_"
