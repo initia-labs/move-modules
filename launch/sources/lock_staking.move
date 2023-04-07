@@ -368,9 +368,15 @@ module launch::lock_staking {
 
         // add more fund
         config(m, 1000000, 1003600);
+        let res = get_module_store<BondCoin>();
+        assert!(res.end_time == 1003600, 0);
+        assert!(res.reward_amount == 2000000, 1);
 
         // update end time
         config(m, 0, 1007200);
+        let res = get_module_store<BondCoin>();
+        assert!(res.end_time == 1007200, 0);
+        assert!(res.reward_amount == 2000000, 1);
     }
 
     #[test(c = @0x1, m = @0x2)]
