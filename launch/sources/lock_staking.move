@@ -20,7 +20,7 @@ module launch::lock_staking {
     const EINVALID_INDEX: u64 = 7;
     const ENOT_RELEASED: u64 = 8;
 
-    struct ModuleStore has key {
+    struct ModuleStore<phantom BondCoin> has key {
         lock_periods: vector<u64>,
         reward_weights: vector<u64>,
         share_sum: u64,
@@ -57,28 +57,8 @@ module launch::lock_staking {
         share: u64,
     }
 
-    fun init_module(m: &signer) {
-        let lock_periods = vector::empty();
-
-        // testnet
-        // vector::push_back(&mut lock_periods, 60 * 60 * 24 /* a day */);
-        // vector::push_back(&mut lock_periods, 60 * 60 * 24 * 3 /* three days */);
-        // vector::push_back(&mut lock_periods, 60 * 60 * 24 * 6 /* six days */);
-        // vector::push_back(&mut lock_periods, 60 * 60 * 24 * 12 /* twleve days */);
-
-        // mainnet
-        vector::push_back(&mut lock_periods, 60 * 60 * 24 * 30 /* a month */);
-        vector::push_back(&mut lock_periods, 60 * 60 * 24 * 30 * 3 /* three month */);
-        vector::push_back(&mut lock_periods, 60 * 60 * 24 * 30 * 6 /* six month */);
-        vector::push_back(&mut lock_periods, 60 * 60 * 24 * 30 * 12 /* one year */);
-
-        let reward_weights = vector::empty();
-        vector::push_back(&mut reward_weights, 1);
-        vector::push_back(&mut reward_weights, 4);
-        vector::push_back(&mut reward_weights, 10);
-        vector::push_back(&mut reward_weights, 25);
-
-        move_to(m, ModuleStore {
+    public entry fun initialize<BondCoin>(m: &signer, lock_periods: vector<u64>, reward_weights: vector<u64>) {
+        move_to(m, ModuleStore<BondCoin> {
             lock_periods,
             reward_weights,
             share_sum: 0,
@@ -101,8 +81,8 @@ module launch::lock_staking {
     }
 
     #[view]
-    public fun get_module_store(): ModuleStoreResponse acquires ModuleStore {
-        let m_store = borrow_global<ModuleStore>(@launch);
+    public fun get_module_store<BondCoin>(): ModuleStoreResponse acquires ModuleStore {
+        let m_store = borrow_global<ModuleStore<BondCoin>>(@launch);
         ModuleStoreResponse {
             lock_periods: m_store.lock_periods,
             reward_weights: m_store.reward_weights,
@@ -130,7 +110,7 @@ module launch::lock_staking {
 
     #[view]
     public fun is_lock_staking_in_progress(): bool acquires ModuleStore{
-        let m_store = borrow_global_mut<ModuleStore>(@launch);
+        let m_store = borrow_global_mut<ModuleStore<BondCoin>>(@launch);
 
         // check lock staking end time
         let (_, block_time) = block::get_block_info();
@@ -139,13 +119,14 @@ module launch::lock_staking {
 
     // EntryFunctions
 
-    /// Configure end_time with reward coin deposit
-    /// This function can be executed until lock_staking finished.
+    /// Configure end_time with reward coin deposit.
+    /// `config` can be executed until lock_staking finished
+    /// to add more rewards or to change end_time.
     public entry fun config(m: &signer, reward_amount: u64, end_time: u64) acquires ModuleStore {
         let account_addr = signer::address_of(m);
         assert!(account_addr == @launch, error::unauthenticated(EMODULE_OPERATION));
 
-        let m_store = borrow_global_mut<ModuleStore>(account_addr);
+        let m_store = borrow_global_mut<ModuleStore<BondCoin>>(account_addr);
 
         if (reward_amount > 0) {
             // withdarw rewards from module coin store
@@ -161,6 +142,13 @@ module launch::lock_staking {
         let (_, block_time) = block::get_block_info();
         assert!(end_time > block_time, error::unavailable(ELOCK_STAKING_END));
         assert!(m_store.end_time == 0 || m_store.end_time > block_time, error::unavailable(ELOCK_STAKING_END));
+
+        let i = 0;
+        let len = vector::length(&m_store.lock_periods);
+        while(i < len) {
+            assert!(end_time < block_time + *vector::borrow(&m_store.lock_periods, i), error::unavailable(ELOCK_STAKING_END)) ;
+            i = i+1;
+        };
 
         m_store.end_time = end_time;
     }
@@ -216,7 +204,7 @@ module launch::lock_staking {
         let delegation = staking::delegate<BondCoin>(validator, lock_coin);
 
         // after delegation, load module store to compute reward share
-        let m_store = borrow_global_mut<ModuleStore>(@launch);
+        let m_store = borrow_global_mut<ModuleStore<BondCoin>>(@launch);
 
         // check lock staking end time
         let (_, block_time) = block::get_block_info();
@@ -259,7 +247,7 @@ module launch::lock_staking {
 
     /// Claim lock staking rewards with Delegation
     public fun claim<BondCoin>(ls_entry: LSEntry<BondCoin>): (Delegation<BondCoin>, Coin<RewardCoin>) acquires ModuleStore {
-        let m_store = borrow_global_mut<ModuleStore>(@launch);
+        let m_store = borrow_global_mut<ModuleStore<BondCoin>>(@launch);
 
         // check time constranits
         let (_, block_time) = block::get_block_info();
@@ -291,11 +279,6 @@ module launch::lock_staking {
         burn_cap: coin::BurnCapability<CoinType>,
         freeze_cap: coin::FreezeCapability<CoinType>,
         mint_cap: coin::MintCapability<CoinType>,
-    }
-    
-    #[test_only]
-    public fun init_module_for_test(m: &signer) {
-        init_module(m)
     }
 
     #[test_only]
@@ -334,7 +317,20 @@ module launch::lock_staking {
         staking::set_staking_share_ratio<BondCoin>(b"val", 1, 1);
 
         // module setup
-        init_module(m);
+        let lock_periods = vector::empty();
+
+        vector::push_back(&mut lock_periods, 60 * 60 * 24 /* a day */);
+        vector::push_back(&mut lock_periods, 60 * 60 * 24 * 3 /* three days */);
+        vector::push_back(&mut lock_periods, 60 * 60 * 24 * 6 /* six days */);
+        vector::push_back(&mut lock_periods, 60 * 60 * 24 * 12 /* twleve days */);
+
+        let reward_weights = vector::empty();
+        vector::push_back(&mut reward_weights, 1);
+        vector::push_back(&mut reward_weights, 4);
+        vector::push_back(&mut reward_weights, 10);
+        vector::push_back(&mut reward_weights, 25);
+
+        initialize<BondCoin>(m, lock_periods, reward_weights);
     }
 
     #[test_only]
@@ -364,17 +360,17 @@ module launch::lock_staking {
 
         block::set_block_info(1, 1000000);
 
-        config(m, 1000000, 2000000);
+        config(m, 1000000, 1003600);
 
-        let res = get_module_store();
-        assert!(res.end_time == 2000000, 0);
+        let res = get_module_store<BondCoin>();
+        assert!(res.end_time == 1003600, 0);
         assert!(res.reward_amount == 1000000, 1);
 
         // add more fund
-        config(m, 1000000, 2000000);
+        config(m, 1000000, 1003600);
 
         // update end time
-        config(m, 0, 3000000);
+        config(m, 0, 1007200);
     }
 
     #[test(c = @0x1, m = @0x2)]
@@ -418,7 +414,7 @@ module launch::lock_staking {
 
         config(m, 1000000, 2000000);
 
-        let res = get_module_store();
+        let res = get_module_store<BondCoin>();
         assert!(res.end_time == 2000000, 0);
         assert!(res.reward_amount == 1000000, 1);
 
@@ -440,10 +436,10 @@ module launch::lock_staking {
 
         block::set_block_info(1, 1000000);
 
-        config(m, 1000000, 2000000);
+        config(m, 1000000, 1003600);
 
-        let res = get_module_store();
-        assert!(res.end_time == 2000000, 0);
+        let res = get_module_store<BondCoin>();
+        assert!(res.end_time == 1003600, 0);
         assert!(res.reward_amount == 1000000, 1);
 
         // execute lock stake
@@ -455,7 +451,7 @@ module launch::lock_staking {
         lock_stake_script<BondCoin>(u, string::utf8(b"val"), 3, 1000000);
 
         // view ls entries
-        let m_store = get_module_store();
+        let m_store = get_module_store<BondCoin>();
         let ls_entries = get_ls_entries<BondCoin>(signer::address_of(u));
         assert!(vector::borrow<LSEntryResponse>(&ls_entries, 0).share == 1000000 * *vector::borrow<u64>(&m_store.reward_weights, 0), 0);
         assert!(vector::borrow<LSEntryResponse>(&ls_entries, 1).share == 1000000 * *vector::borrow<u64>(&m_store.reward_weights, 1), 1);
@@ -480,10 +476,10 @@ module launch::lock_staking {
 
         block::set_block_info(1, 1000000);
 
-        config(m, 1000000, 2000000);
+        config(m, 1000000, 1003600);
 
-        let res = get_module_store();
-        assert!(res.end_time == 2000000, 0);
+        let res = get_module_store<BondCoin>();
+        assert!(res.end_time == 1003600, 0);
         assert!(res.reward_amount == 1000000, 1);
 
         // execute lock stake
@@ -504,10 +500,10 @@ module launch::lock_staking {
 
         block::set_block_info(1, 1000000);
 
-        config(m, 1000000, 2000000);
+        config(m, 1000000, 1003600);
 
-        let res = get_module_store();
-        assert!(res.end_time == 2000000, 0);
+        let res = get_module_store<BondCoin>();
+        assert!(res.end_time == 1003600, 0);
         assert!(res.reward_amount == 1000000, 1);
 
         // execute lock stake
@@ -528,14 +524,14 @@ module launch::lock_staking {
 
         block::set_block_info(1, 1000000);
 
-        config(m, 1000000, 2000000);
+        config(m, 1000000, 1003600);
 
-        let res = get_module_store();
-        assert!(res.end_time == 2000000, 0);
+        let res = get_module_store<BondCoin>();
+        assert!(res.end_time == 1003600, 0);
         assert!(res.reward_amount == 1000000, 1);
 
         // update block time to end of lock staking
-        let m_store = get_module_store();
+        let m_store = get_module_store<BondCoin>();
         block::set_block_info(1, m_store.end_time+1);
 
         // execute lock stake
@@ -561,10 +557,10 @@ module launch::lock_staking {
         fund_reward(signer::address_of(c), signer::address_of(m), 2000000);
 
         let reward_amount = 1000000;
-        let end_time = 2000000;
+        let end_time = 1003600;
         config(m, reward_amount, end_time);
 
-        let res = get_module_store();
+        let res = get_module_store<BondCoin>();
         assert!(res.end_time == end_time, 0);
         assert!(res.reward_amount == reward_amount, 1);
 
@@ -576,7 +572,7 @@ module launch::lock_staking {
         lock_stake_script<BondCoin>(u, string::utf8(b"val"), 2, stake_amount);
         lock_stake_script<BondCoin>(u, string::utf8(b"val"), 3, stake_amount);
 
-        let m_store = get_module_store();
+        let m_store = get_module_store<BondCoin>();
         
         block::set_block_info(1, 1000000 + *vector::borrow(&m_store.lock_periods, 0) + 1);
         claim_script<BondCoin>(u, 0);
@@ -618,10 +614,10 @@ module launch::lock_staking {
         fund_reward(signer::address_of(c), signer::address_of(m), 2000000);
 
         let reward_amount = 1000000;
-        let end_time = 2000000;
+        let end_time = 1003600;
         config(m, reward_amount, end_time);
 
-        let res = get_module_store();
+        let res = get_module_store<BondCoin>();
         assert!(res.end_time == end_time, 0);
         assert!(res.reward_amount == reward_amount, 1);
 
@@ -649,10 +645,10 @@ module launch::lock_staking {
         fund_reward(signer::address_of(c), signer::address_of(m), 2000000);
 
         let reward_amount = 1000000;
-        let end_time = 2000000;
+        let end_time = 1003600;
         config(m, reward_amount, end_time);
 
-        let res = get_module_store();
+        let res = get_module_store<BondCoin>();
         assert!(res.end_time == end_time, 0);
         assert!(res.reward_amount == reward_amount, 1);
 
@@ -661,7 +657,7 @@ module launch::lock_staking {
         fund_bond(signer::address_of(m), signer::address_of(u), 4 * stake_amount);
         lock_stake_script<BondCoin>(u, string::utf8(b"val"), 0, stake_amount);
         
-        let m_store = get_module_store();
+        let m_store = get_module_store<BondCoin>();
         
         block::set_block_info(1, 1000000 + *vector::borrow(&m_store.lock_periods, 0) - 1);
         claim_script<BondCoin>(u, 0);
