@@ -1,0 +1,16 @@
+[package]
+name = "launch"
+version = "0.0.1"
+
+[addresses]
+std = "0x1"
+initia_std = "0x1"
+launch = "_"
+
+[dev-addresses]
+launch = "0x2"
+
+[dependencies]
+MoveStdlib = { git = "https://github.com/initia-labs/initiavm.git", subdir = "crates/stdlib/src/move_stdlib", rev = "8f0b24836be8c605c457624573f2ece917a3bfa3" }
+MoveNursery = { git = "https://github.com/initia-labs/initiavm.git", subdir = "crates/stdlib/src/move_nursery", rev = "8f0b24836be8c605c457624573f2ece917a3bfa3" }
+InitiaStdlib = { git = "https://github.com/initia-labs/initiavm.git", subdir = "crates/stdlib/src/initia_stdlib", rev = "8f0b24836be8c605c457624573f2ece917a3bfa3" }
