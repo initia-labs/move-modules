@@ -121,12 +121,7 @@ module launch::lock_staking {
         let i = 0;
         while( i < len ) {
             let ls_entry = vector::borrow(&ls_store.entries, i);
-            let delegation_res = staking::get_delegation_response_from_delegation<BondCoin>(&ls_entry.delegation);
-            vector::push_back(&mut res, LSEntryResponse {
-                delegation: delegation_res,
-                release_time: ls_entry.release_time,
-                share: ls_entry.share,
-            });
+            vector::push_back(&mut res, get_ls_entry_response_from_ls_entry(ls_entry));
             i = i + 1;
         };
         
