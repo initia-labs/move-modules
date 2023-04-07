@@ -1,0 +1,16 @@
+[package]
+name = "launch"
+version = "0.0.1"
+
+[addresses]
+std = "0x1"
+initia_std = "0x1"
+launch = "_"
+
+[dev-addresses]
+launch = "0x2"
+
+[dependencies]
+MoveStdlib = { local = "../../initiavm/crates/stdlib/src/move_stdlib" }
+MoveNursery = { local = "../../initiavm/crates/stdlib/src/move_nursery" }
+InitiaStdlib = { local = "../../initiavm/crates/stdlib/src/initia_stdlib" }
