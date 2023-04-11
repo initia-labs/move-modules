@@ -56,6 +56,7 @@ module launch::lock_staking {
     struct ClaimEvent has drop, store {
         coin_type: String,
         reward_amount: u64,
+        delegation_reward_amount: u64,
         share: u64
     }
 
@@ -230,6 +231,7 @@ module launch::lock_staking {
         
         // copy for event emit
         let reward_amount = coin::value(&reward);
+        let delegation_reward_amount = coin::value(&d_reward);
 
         // merge delegation rewards with lock staking rewards
         coin::merge(&mut reward, d_reward);
@@ -244,6 +246,7 @@ module launch::lock_staking {
             ClaimEvent {
                 coin_type: type_name<BondCoin>(),
                 reward_amount,
+                delegation_reward_amount,
                 share,
             }
         );
