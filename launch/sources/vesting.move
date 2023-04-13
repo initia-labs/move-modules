@@ -31,16 +31,7 @@ module launch::vesting {
 
     struct VestingStore<phantom CoinType> has key {
         schedules: vector<Schedule<CoinType>>,
-        create_schedule_events: EventHandle<CreateScheduleEvent>,
         release_events: EventHandle<ReleaseEvent>,
-    }
-
-    struct CreateScheduleEvent has drop, store {
-        coin_type: String,
-        amount: u64,
-        start_time: u64,
-        end_time: u64,
-        release_interval: u64,
     }
 
     struct ReleaseEvent has drop, store {
@@ -87,32 +78,14 @@ module launch::vesting {
 
         move_to(account, VestingStore<CoinType>{
             schedules: vector::empty(),
-            create_schedule_events: event::new_event_handle<CreateScheduleEvent>(account),
             release_events: event::new_event_handle<ReleaseEvent>(account),
         });
     }
 
     public entry fun add_vesting<CoinType>(account: &signer, recipient: address, amount: u64, start_time: u64, end_time: u64, release_interval: u64) acquires VestingStore {
-        let account_addr = signer::address_of(account);
-        if (!exists<VestingStore<CoinType>>(account_addr)) {
-            register<CoinType>(account);
-        };
-
         let vesting_coin = coin::withdraw<CoinType>(account, amount);
         let schedule = new_schedule<CoinType>(vesting_coin, start_time, end_time, release_interval);
         deposit_schedule<CoinType>(recipient, schedule);
-
-        let v_store = borrow_global_mut<VestingStore<CoinType>>(account_addr);
-        event::emit_event<CreateScheduleEvent>(
-            &mut v_store.create_schedule_events,
-            CreateScheduleEvent {
-                coin_type: type_info::type_name<CoinType>(),
-                amount,
-                start_time,
-                end_time,
-                release_interval,
-            }
-        );
     }
 
     public entry fun claim_script<CoinType>(account: &signer, index: u64) acquires VestingStore {
