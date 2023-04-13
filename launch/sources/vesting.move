@@ -12,12 +12,12 @@ module launch::vesting {
     // Errors
 
     const EVESTING_STORE_ALREADY_EXISTS: u64 = 1;
-    const EINVALID_SCHEDULE: u64 = 2;
-    const EVESTING_STORE_NOT_FOUND: u64 = 3;
+    const EVESTING_STORE_NOT_FOUND: u64 = 2;
+    const EINVALID_SCHEDULE: u64 = 3;
     const EINVALID_INDEX: u64 = 4;
 
     struct Schedule<phantom CoinType> has store {
-        amount: Coin<CoinType>,
+        vesting_coin: Coin<CoinType>,
         initial_amount: u64,
         released_amount: u64,
 
@@ -31,10 +31,10 @@ module launch::vesting {
 
     struct VestingStore<phantom CoinType> has key {
         schedules: vector<Schedule<CoinType>>,
-        release_events: EventHandle<ReleaseEvent>,
+        claim_events: EventHandle<ClaimEvent>,
     }
 
-    struct ReleaseEvent has drop, store {
+    struct ClaimEvent has drop, store {
         coin_type: String,
         amount: u64,
     }
@@ -78,7 +78,7 @@ module launch::vesting {
 
         move_to(account, VestingStore<CoinType>{
             schedules: vector::empty(),
-            release_events: event::new_event_handle<ReleaseEvent>(account),
+            claim_events: event::new_event_handle<ClaimEvent>(account),
         });
     }
 
@@ -94,17 +94,17 @@ module launch::vesting {
         let schedule = withdraw_schedule<CoinType>(account, index);
         let claimed_coin = claim<CoinType>(&mut schedule);
 
-        if (coin::value(&schedule.amount) == 0) {
+        if (coin::value(&schedule.vesting_coin) == 0) {
             // destroy schedule
             let Schedule {
-                amount,
+                vesting_coin,
                 initial_amount: _,
                 released_amount: _,
                 start_time: _,
                 end_time: _,
                 release_interval: _,
             } = schedule;
-            coin::destroy_zero<CoinType>(amount);
+            coin::destroy_zero<CoinType>(vesting_coin);
         } else {
             // put back into vesting store
             deposit_schedule<CoinType>(account_addr, schedule, index);
@@ -115,9 +115,9 @@ module launch::vesting {
             coin::destroy_zero(claimed_coin);
         } else {
             let v_store = borrow_global_mut<VestingStore<CoinType>>(account_addr);
-            event::emit_event<ReleaseEvent>(
-                &mut v_store.release_events,
-                ReleaseEvent {
+            event::emit_event<ClaimEvent>(
+                &mut v_store.claim_events,
+                ClaimEvent {
                     coin_type: type_info::type_name<CoinType>(),
                     amount: claimed_coin_amount,
                 },
@@ -128,16 +128,16 @@ module launch::vesting {
 
     // Public functions
 
-    public fun new_schedule<CoinType>(amount: Coin<CoinType>, start_time: u64, end_time: u64, release_interval: u64): Schedule<CoinType> {
+    public fun new_schedule<CoinType>(vesting_coin: Coin<CoinType>, start_time: u64, end_time: u64, release_interval: u64): Schedule<CoinType> {
         assert!(start_time <= end_time, error::invalid_argument(EINVALID_SCHEDULE));
         let period = end_time - start_time;
 
         // period must be multiple of interval
         assert!(period == (period / release_interval) * release_interval, error::invalid_argument(EINVALID_SCHEDULE));
 
-        let initial_amount = coin::value(&amount);
+        let initial_amount = coin::value(&vesting_coin);
         Schedule<CoinType> {
-            amount,
+            vesting_coin,
             initial_amount,
             released_amount: 0,
             start_time,
@@ -190,7 +190,7 @@ module launch::vesting {
         };
 
         schedule.released_amount = schedule.released_amount + release_amount;
-        coin::extract(&mut schedule.amount, release_amount)
+        coin::extract(&mut schedule.vesting_coin, release_amount)
     }
 
     ///////////////////////////////////////////////////////
@@ -255,7 +255,7 @@ module launch::vesting {
     }
 
     #[test(c = @0x1, m = @0x2, u = @0x3)]
-    #[expected_failure(abort_code = 0x10002, location = Self)]
+    #[expected_failure(abort_code = 0x10003, location = Self)]
     fun test_add_vesting_invalid_schedule(c: &signer, m: &signer, u: &signer) acquires VestingStore, CoinCaps {
         test_setup(c, m);
         fund_vesting_coin(signer::address_of(c), signer::address_of(m), 2000000);
@@ -265,7 +265,7 @@ module launch::vesting {
     }
 
     #[test(c = @0x1, m = @0x2, u = @0x3)]
-    #[expected_failure(abort_code = 0x10002, location = Self)]
+    #[expected_failure(abort_code = 0x10003, location = Self)]
     fun test_add_vesting_invalid_interval(c: &signer, m: &signer, u: &signer) acquires VestingStore, CoinCaps {
         test_setup(c, m);
         fund_vesting_coin(signer::address_of(c), signer::address_of(m), 2000000);
