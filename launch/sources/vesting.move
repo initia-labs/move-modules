@@ -3,7 +3,7 @@ module launch::vesting {
     use std::error;
     use std::signer;
     use std::vector;
-    use std::string::String;
+    use std::string::{Self, String};
     use std::event::{Self, EventHandle};
 
     use initia_std::block;
@@ -191,5 +191,112 @@ module launch::vesting {
 
         schedule.released_amount = schedule.released_amount + release_amount;
         coin::extract(&mut schedule.amount, release_amount)
+    }
+
+    ///////////////////////////////////////////////////////
+    // Test
+
+    #[test_only]
+    use initia_std::native_uinit::Coin as UinitCoin;
+
+    #[test_only]
+    struct CoinCaps<phantom CoinType> has key {
+        burn_cap: coin::BurnCapability<CoinType>,
+        freeze_cap: coin::FreezeCapability<CoinType>,
+        mint_cap: coin::MintCapability<CoinType>,
+    }
+
+    #[test_only]
+    fun test_setup(c: &signer, m: &signer) {
+        // coin setup
+        coin::init_module_for_test(c);
+
+        let (burn_cap, freeze_cap, mint_cap) = coin::initialize<UinitCoin>(
+            c,
+            string::utf8(b"INIT Coin"),
+            string::utf8(b"uinit"),
+            6,
+        );
+        move_to(c, CoinCaps<UinitCoin> {
+            burn_cap,
+            freeze_cap,
+            mint_cap,
+        });
+
+        coin::register<UinitCoin>(m);
+    }
+
+    #[test_only]
+    fun fund_vesting_coin(c_addr: address, m_addr: address, amt: u64) acquires CoinCaps {
+        let caps = borrow_global<CoinCaps<UinitCoin>>(c_addr);
+        coin::deposit<UinitCoin>(m_addr, coin::mint<UinitCoin>(amt, &caps.mint_cap));
+    }
+
+    #[test(c = @0x1, m = @0x2, u = @0x3)]
+    fun test_add_vesting(c: &signer, m: &signer, u: &signer) acquires VestingStore, CoinCaps {
+        test_setup(c, m);
+        fund_vesting_coin(signer::address_of(c), signer::address_of(m), 2000000);
+        register<UinitCoin>(u);
+
+        // TODO: add more
+        add_vesting<UinitCoin>(m, signer::address_of(u), 1000000, 2000, 3000, 1000);
+        let schedules = get_vesting_schedules<UinitCoin>(signer::address_of(u));
+        assert!(vector::length(&schedules) == 1, 0)
+    }
+
+    #[test(c = @0x1, m = @0x2, u = @0x3)]
+    #[expected_failure(abort_code = 0x10007, location = coin)]
+    fun test_add_vesting_insufficient_amount(c: &signer, m: &signer, u: &signer) acquires VestingStore, CoinCaps {
+        test_setup(c, m);
+        fund_vesting_coin(signer::address_of(c), signer::address_of(m), 2000000);
+        register<UinitCoin>(u);
+
+        add_vesting<UinitCoin>(m, signer::address_of(u), 3000000, 2000, 3000, 1000);
+    }
+
+    #[test(c = @0x1, m = @0x2, u = @0x3)]
+    #[expected_failure(abort_code = 0x10002, location = Self)]
+    fun test_add_vesting_invalid_schedule(c: &signer, m: &signer, u: &signer) acquires VestingStore, CoinCaps {
+        test_setup(c, m);
+        fund_vesting_coin(signer::address_of(c), signer::address_of(m), 2000000);
+        register<UinitCoin>(u);
+
+        add_vesting<UinitCoin>(m, signer::address_of(u), 1000000, 3000, 2000, 1000);
+    }
+
+    #[test(c = @0x1, m = @0x2, u = @0x3)]
+    #[expected_failure(abort_code = 0x10002, location = Self)]
+    fun test_add_vesting_invalid_interval(c: &signer, m: &signer, u: &signer) acquires VestingStore, CoinCaps {
+        test_setup(c, m);
+        fund_vesting_coin(signer::address_of(c), signer::address_of(m), 2000000);
+        register<UinitCoin>(u);
+
+        add_vesting<UinitCoin>(m, signer::address_of(u), 1000000, 2000, 3000, 700);
+    }
+
+    #[test(c = @0x1, m = @0x2, u = @0x3)]
+    fun test_claim(c: &signer, m: &signer, u: &signer) acquires VestingStore, CoinCaps {
+        test_setup(c, m);
+        fund_vesting_coin(signer::address_of(c), signer::address_of(m), 2000000);
+        register<UinitCoin>(u);
+        add_vesting<UinitCoin>(m, signer::address_of(u), 1000000, 2000, 3000, 1000);
+
+        // TODO: add more
+        block::set_block_info(1, 0);
+        claim_script<UinitCoin>(u, 0);
+        let v_store = borrow_global<VestingStore<UinitCoin>>(signer::address_of(u));
+        assert!(vector::borrow(&v_store.schedules, 0).released_amount == 0, 1);
+    }
+
+    #[test(c = @0x1, m = @0x2, u = @0x3)]
+    #[expected_failure(abort_code = 0x20004, location = Self)]
+    fun test_claim_invalid_index(c: &signer, m: &signer, u: &signer) acquires VestingStore, CoinCaps {
+        test_setup(c, m);
+        fund_vesting_coin(signer::address_of(c), signer::address_of(m), 2000000);
+        register<UinitCoin>(u);
+        add_vesting<UinitCoin>(m, signer::address_of(u), 1000000, 2000, 3000, 1000);
+
+        block::set_block_info(1, 0);
+        claim_script<UinitCoin>(u, 1);        
     }
 }
