@@ -184,7 +184,11 @@ module launch::vesting {
         let passed_intervals = time_diff / schedule.release_interval + 1;
 
         let release_unit = schedule.initial_amount / total_intervals;
-        let release_amount = release_unit * passed_intervals - schedule.released_amount;
+        let release_amount = if (passed_intervals == total_intervals) {
+            schedule.initial_amount - schedule.released_amount
+        } else {
+            release_unit * passed_intervals - schedule.released_amount
+        };
         if (release_amount == 0) {
             return coin::zero<CoinType>()
         };
@@ -238,10 +242,49 @@ module launch::vesting {
         fund_vesting_coin(signer::address_of(c), signer::address_of(m), 2000000);
         register<UinitCoin>(u);
 
-        // TODO: add more
-        add_vesting<UinitCoin>(m, signer::address_of(u), 1000000, 2000, 3000, 1000);
+        add_vesting<UinitCoin>(m, signer::address_of(u), 200000, 0, 1000, 1000);
+        add_vesting<UinitCoin>(m, signer::address_of(u), 300000, 1000, 2000, 500);
+        add_vesting<UinitCoin>(m, signer::address_of(u), 400000, 2000, 3000, 250);
+        add_vesting<UinitCoin>(m, signer::address_of(u), 500000, 3000, 4000, 200);
+
         let schedules = get_vesting_schedules<UinitCoin>(signer::address_of(u));
-        assert!(vector::length(&schedules) == 1, 0)
+        assert!(
+            schedules == vector[
+                ScheduleResponse {
+                    coin_type: type_info::type_name<UinitCoin>(),
+                    initial_amount: 200000,
+                    released_amount: 0,
+                    start_time: 0,
+                    end_time: 1000,
+                    release_interval: 1000,
+                },
+                ScheduleResponse {
+                    coin_type: type_info::type_name<UinitCoin>(),
+                    initial_amount: 300000,
+                    released_amount: 0,
+                    start_time: 1000,
+                    end_time: 2000,
+                    release_interval: 500,
+                },
+                ScheduleResponse {
+                    coin_type: type_info::type_name<UinitCoin>(),
+                    initial_amount: 400000,
+                    released_amount: 0,
+                    start_time: 2000,
+                    end_time: 3000,
+                    release_interval: 250,
+                },
+                ScheduleResponse {
+                    coin_type: type_info::type_name<UinitCoin>(),
+                    initial_amount: 500000,
+                    released_amount: 0,
+                    start_time: 3000,
+                    end_time: 4000,
+                    release_interval: 200,
+                },
+            ],
+            0
+        );
     }
 
     #[test(c = @0x1, m = @0x2, u = @0x3)]
@@ -279,13 +322,33 @@ module launch::vesting {
         test_setup(c, m);
         fund_vesting_coin(signer::address_of(c), signer::address_of(m), 2000000);
         register<UinitCoin>(u);
-        add_vesting<UinitCoin>(m, signer::address_of(u), 1000000, 2000, 3000, 1000);
+        coin::register<UinitCoin>(u);
+        add_vesting<UinitCoin>(m, signer::address_of(u), 1000000, 1000, 2000, 500);
+        add_vesting<UinitCoin>(m, signer::address_of(u), 1000000, 3000, 4000, 200);
 
-        // TODO: add more
         block::set_block_info(1, 0);
         claim_script<UinitCoin>(u, 0);
         let v_store = borrow_global<VestingStore<UinitCoin>>(signer::address_of(u));
-        assert!(vector::borrow(&v_store.schedules, 0).released_amount == 0, 1);
+        assert!(vector::borrow(&v_store.schedules, 0).released_amount == 0, 0);
+        // check preserved order after claim
+        assert!(vector::borrow(&v_store.schedules, 1).start_time == 3000, 1);
+
+        block::set_block_info(2, 1000);
+        claim_script<UinitCoin>(u, 0);
+        let v_store = borrow_global<VestingStore<UinitCoin>>(signer::address_of(u));
+        assert!(vector::borrow(&v_store.schedules, 0).released_amount == 333333, 2);
+
+        block::set_block_info(3, 1500);
+        claim_script<UinitCoin>(u, 0);
+        let v_store = borrow_global<VestingStore<UinitCoin>>(signer::address_of(u));
+        assert!(vector::borrow(&v_store.schedules, 0).released_amount == 666666, 3);
+
+        block::set_block_info(4, 2000);
+        claim_script<UinitCoin>(u, 0);
+        let v_store = borrow_global<VestingStore<UinitCoin>>(signer::address_of(u));
+        // check vesting finished
+        assert!(vector::borrow(&v_store.schedules, 0).release_interval == 200, 4);
+        assert!(coin::balance<UinitCoin>(signer::address_of(u)) == 1000000, 5);
     }
 
     #[test(c = @0x1, m = @0x2, u = @0x3)]
