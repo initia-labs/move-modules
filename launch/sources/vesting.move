@@ -85,7 +85,8 @@ module launch::vesting {
     public entry fun add_vesting<CoinType>(account: &signer, recipient: address, amount: u64, start_time: u64, end_time: u64, release_interval: u64) acquires VestingStore {
         let vesting_coin = coin::withdraw<CoinType>(account, amount);
         let schedule = new_schedule<CoinType>(vesting_coin, start_time, end_time, release_interval);
-        deposit_schedule<CoinType>(recipient, schedule);
+        let v_store = borrow_global<VestingStore<CoinType>>(recipient);
+        deposit_schedule<CoinType>(recipient, schedule, vector::length(&v_store.schedules));
     }
 
     public entry fun claim_script<CoinType>(account: &signer, index: u64) acquires VestingStore {
@@ -106,7 +107,7 @@ module launch::vesting {
             coin::destroy_zero<CoinType>(amount);
         } else {
             // put back into vesting store
-            deposit_schedule<CoinType>(account_addr, schedule);
+            deposit_schedule<CoinType>(account_addr, schedule, index);
         };
 
         let claimed_coin_amount = coin::value(&claimed_coin);
@@ -145,11 +146,13 @@ module launch::vesting {
         }
     }
 
-    public fun deposit_schedule<CoinType>(account_addr: address, schedule: Schedule<CoinType>) acquires VestingStore {
+    public fun deposit_schedule<CoinType>(account_addr: address, schedule: Schedule<CoinType>, index: u64) acquires VestingStore {
         assert!(exists<VestingStore<CoinType>>(account_addr), error::not_found(EVESTING_STORE_NOT_FOUND));
 
         let v_store = borrow_global_mut<VestingStore<CoinType>>(account_addr);
-        vector::push_back(&mut v_store.schedules, schedule);
+        assert!(vector::length(&v_store.schedules) >= index, error::out_of_range(EINVALID_INDEX));
+
+        vector::insert(&mut v_store.schedules, schedule, index);
     }
 
     public fun withdraw_schedule<CoinType>(account: &signer, index: u64): Schedule<CoinType> acquires VestingStore {
