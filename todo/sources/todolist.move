@@ -1,10 +1,14 @@
 module todolist_addr::todolist{
     use std::signer;
     use std::string::String;
-    use std::event::{Self};
+    use std::event;
     use std::table as T;
+    
     #[test_only]
-    use std::string;
+    use initia_std::string;
+
+    #[test_only]
+    use initia_std::table;
     
      // Errors
     const E_NOT_INITIALIZED: u64 = 1;
@@ -19,7 +23,7 @@ module todolist_addr::todolist{
 
     struct Task has store, drop, copy {
         task_id: u64,
-        address:address,
+        address: address,
         content: String,
         completed: bool,
     }  
@@ -80,14 +84,12 @@ module todolist_addr::todolist{
 
     #[test(admin = @0x123)]
     public entry fun test_flow(admin: signer) acquires TodoList {
-        // creates an admin @todolist_addr account for test
-        account::create_account_for_test(signer::address_of(&admin));
         // initialize contract with admin account 
         create_list(&admin);
 
         // creates a task by the admin account
         create_task(&admin, string::utf8(b"New Task"));
-        let task_count = event::counter(&borrow_global<TodoList>(signer::address_of(&admin)).set_task_event);
+        let task_count = event::counter(&borrow_global<TodoList>(signer::address_of(&admin)).set_task_event);       
         assert!(task_count == 1, 4);
         let todo_list = borrow_global<TodoList>(signer::address_of(&admin));
         assert!(todo_list.task_counter == 1, 5);
@@ -110,10 +112,7 @@ module todolist_addr::todolist{
     #[test(admin = @0x123)]
     #[expected_failure(abort_code = E_NOT_INITIALIZED)]
     public entry fun account_can_not_update_task(admin: signer) acquires TodoList {
-        // creates an admin @todolist_addr account for test
-        account::create_account_for_test(signer::address_of(&admin));
         // account can not toggle task as no list was created
         complete_task(&admin, 2);
     }
-
 }

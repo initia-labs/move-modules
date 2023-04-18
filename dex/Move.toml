@@ -5,11 +5,14 @@ version = "0.0.1"
 [addresses]
 std = "0x1"
 initia_std = "0x1"
+dex = "_"
+dex_util = "_"
+
+[dev-addresses]
 dex = "0x3"
 dex_util = "0x4"
 
-
 [dependencies]
-MoveStdlib = { git = "https://github.com/initia-labs/initiavm.git", subdir = "crates/stdlib/src/move_stdlib", rev = "f9581dde6e0f73449d804749681cf512aa54a1e5" }
-MoveNursery = { git = "https://github.com/initia-labs/initiavm.git", subdir = "crates/stdlib/src/move_nursery", rev = "f9581dde6e0f73449d804749681cf512aa54a1e5" }
-InitiaStdlib = { git = "https://github.com/initia-labs/initiavm.git", subdir = "crates/stdlib/src/initia_stdlib", rev = "f9581dde6e0f73449d804749681cf512aa54a1e5" }
+MoveStdlib = { git = "https://github.com/initia-labs/initiavm.git", subdir = "crates/stdlib/src/move_stdlib", rev = "27a15df58f6587dc6335a21ef601bfcb11b59e04"  }
+MoveNursery = { git = "https://github.com/initia-labs/initiavm.git", subdir = "crates/stdlib/src/move_nursery", rev = "27a15df58f6587dc6335a21ef601bfcb11b59e04" }
+InitiaStdlib = { git = "https://github.com/initia-labs/initiavm.git", subdir = "crates/stdlib/src/initia_stdlib", rev = "27a15df58f6587dc6335a21ef601bfcb11b59e04" }
