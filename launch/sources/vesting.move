@@ -31,7 +31,27 @@ module launch::vesting {
 
     struct VestingStore<phantom CoinType> has key {
         schedules: vector<Schedule<CoinType>>,
+        deposit_events: EventHandle<DepositEvent>,
+        withdraw_events: EventHandle<WithdrawEvent>,
         claim_events: EventHandle<ClaimEvent>,
+    }
+
+    struct DepositEvent has drop, store {
+        coin_type: String,
+        initial_amount: u64,
+        released_amount: u64,
+        start_time: u64,
+        end_time: u64,
+        release_interval: u64,
+    }
+
+    struct WithdrawEvent has drop, store {
+        coin_type: String,
+        initial_amount: u64,
+        released_amount: u64,
+        start_time: u64,
+        end_time: u64,
+        release_interval: u64,
     }
 
     struct ClaimEvent has drop, store {
@@ -78,6 +98,8 @@ module launch::vesting {
 
         move_to(account, VestingStore<CoinType>{
             schedules: vector::empty(),
+            deposit_events: event::new_event_handle<DepositEvent>(account),
+            withdraw_events: event::new_event_handle<WithdrawEvent>(account),
             claim_events: event::new_event_handle<ClaimEvent>(account),
         });
     }
@@ -142,6 +164,17 @@ module launch::vesting {
         assert!(exists<VestingStore<CoinType>>(account_addr), error::not_found(EVESTING_STORE_NOT_FOUND));
 
         let v_store = borrow_global_mut<VestingStore<CoinType>>(account_addr);
+        event::emit_event<DepositEvent>(
+            &mut v_store.deposit_events,
+            DepositEvent {
+                coin_type: type_info::type_name<CoinType>(),
+                initial_amount: schedule.initial_amount,
+                released_amount: schedule.released_amount,
+                start_time: schedule.start_time,
+                end_time: schedule.end_time,
+                release_interval: schedule.release_interval,
+            },
+        );
         vector::push_back(&mut v_store.schedules, schedule);
     }
 
@@ -153,7 +186,20 @@ module launch::vesting {
         assert!(vector::length(&v_store.schedules) > index, error::out_of_range(EINVALID_INDEX));
 
         // O(n) cost, but want to keep the order for front UX
-        vector::remove(&mut v_store.schedules, index)
+        let schedule = vector::remove(&mut v_store.schedules, index);
+        event::emit_event<WithdrawEvent>(
+            &mut v_store.withdraw_events,
+            WithdrawEvent {
+                coin_type: type_info::type_name<CoinType>(),
+                initial_amount: schedule.initial_amount,
+                released_amount: schedule.released_amount,
+                start_time: schedule.start_time,
+                end_time: schedule.end_time,
+                release_interval: schedule.release_interval,
+            },
+        );
+
+        schedule
     }
 
     public fun claim<CoinType>(schedule: &mut Schedule<CoinType>): Coin<CoinType> {
