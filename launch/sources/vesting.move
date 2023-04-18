@@ -86,28 +86,21 @@ module launch::vesting {
         let vesting_coin = coin::withdraw<CoinType>(account, amount);
         let schedule = new_schedule<CoinType>(vesting_coin, start_time, end_time, release_interval);
         let v_store = borrow_global<VestingStore<CoinType>>(recipient);
-        deposit_schedule<CoinType>(recipient, schedule, vector::length(&v_store.schedules));
+        deposit_schedule<CoinType>(recipient, schedule);
     }
 
     public entry fun claim_script<CoinType>(account: &signer, index: u64) acquires VestingStore {
         let account_addr = signer::address_of(account);
-        let schedule = withdraw_schedule<CoinType>(account, index);
-        let claimed_coin = claim<CoinType>(&mut schedule);
+        assert!(exists<VestingStore<CoinType>>(account_addr), error::not_found(EVESTING_STORE_NOT_FOUND));
+
+        let v_store = borrow_global_mut<VestingStore<CoinType>>(account_addr);
+        assert!(vector::length(&v_store.schedules) > index, error::out_of_range(EINVALID_INDEX));
+
+        let schedule = vector::borrow_mut<Schedule<CoinType>>(&mut v_store.schedules, index);
+        let claimed_coin = claim<CoinType>(schedule);
 
         if (coin::value(&schedule.vesting_coin) == 0) {
-            // destroy schedule
-            let Schedule {
-                vesting_coin,
-                initial_amount: _,
-                released_amount: _,
-                start_time: _,
-                end_time: _,
-                release_interval: _,
-            } = schedule;
-            coin::destroy_zero<CoinType>(vesting_coin);
-        } else {
-            // put back into vesting store
-            deposit_schedule<CoinType>(account_addr, schedule, index);
+            destroy_schedule<CoinType>(withdraw_schedule<CoinType>(account, index));
         };
 
         let claimed_coin_amount = coin::value(&claimed_coin);
@@ -146,13 +139,11 @@ module launch::vesting {
         }
     }
 
-    public fun deposit_schedule<CoinType>(account_addr: address, schedule: Schedule<CoinType>, index: u64) acquires VestingStore {
+    public fun deposit_schedule<CoinType>(account_addr: address, schedule: Schedule<CoinType>) acquires VestingStore {
         assert!(exists<VestingStore<CoinType>>(account_addr), error::not_found(EVESTING_STORE_NOT_FOUND));
 
         let v_store = borrow_global_mut<VestingStore<CoinType>>(account_addr);
-        assert!(vector::length(&v_store.schedules) >= index, error::out_of_range(EINVALID_INDEX));
-
-        vector::insert(&mut v_store.schedules, schedule, index);
+        vector::push_back(&mut v_store.schedules, schedule);
     }
 
     public fun withdraw_schedule<CoinType>(account: &signer, index: u64): Schedule<CoinType> acquires VestingStore {
@@ -195,6 +186,19 @@ module launch::vesting {
 
         schedule.released_amount = schedule.released_amount + release_amount;
         coin::extract(&mut schedule.vesting_coin, release_amount)
+    }
+
+    public fun destroy_schedule<CoinType>(schedule: Schedule<CoinType>) {
+        let Schedule {
+            vesting_coin,
+            initial_amount: _,
+            released_amount: _,
+            start_time: _,
+            end_time: _,
+            release_interval: _,
+        } = schedule;
+
+        coin::destroy_zero<CoinType>(vesting_coin);
     }
 
     ///////////////////////////////////////////////////////
