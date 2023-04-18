@@ -85,7 +85,6 @@ module launch::vesting {
     public entry fun add_vesting<CoinType>(account: &signer, recipient: address, amount: u64, start_time: u64, end_time: u64, release_interval: u64) acquires VestingStore {
         let vesting_coin = coin::withdraw<CoinType>(account, amount);
         let schedule = new_schedule<CoinType>(vesting_coin, start_time, end_time, release_interval);
-        let v_store = borrow_global<VestingStore<CoinType>>(recipient);
         deposit_schedule<CoinType>(recipient, schedule);
     }
 

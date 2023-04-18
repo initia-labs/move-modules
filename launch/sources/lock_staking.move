@@ -2,7 +2,9 @@ module launch::lock_staking {
     use std::error;
     use std::signer;
     use std::vector;
-    use std::string::{Self, String};
+    use std::string::String;
+    use std::event::{Self, EventHandle};
+    use std::type_info::type_name;
 
     use initia_std::native_uinit::Coin as RewardCoin;
     use initia_std::staking::{Self, Delegation, DelegationResponse};
@@ -32,6 +34,8 @@ module launch::lock_staking {
 
     struct LSStore<phantom BondCoin> has key {
         entries: vector<LSEntry<BondCoin>>,
+        lock_events: EventHandle<LockEvent>,
+        claim_events: EventHandle<ClaimEvent>,
     }
 
     struct LSEntry<phantom BondCoin> has store {
@@ -41,7 +45,22 @@ module launch::lock_staking {
         share: u64,
     }
 
-    // Response
+    // Events
+
+    struct LockEvent has drop, store {
+        coin_type: String,
+        release_time: u64,
+        share: u64,
+    }
+
+    struct ClaimEvent has drop, store {
+        coin_type: String,
+        reward_amount: u64,
+        delegation_reward_amount: u64,
+        share: u64
+    }
+
+    // Responses
 
     struct ModuleStoreResponse has drop {
         lock_periods: vector<u64>,
@@ -158,6 +177,8 @@ module launch::lock_staking {
         assert!(!exists<LSStore<BondCoin>>(signer::address_of(account)), error::already_exists(ELS_STORE_ALREADY_EXISTS));
         move_to(account, LSStore<BondCoin>{
             entries: vector::empty(),
+            lock_events: event::new_event_handle<LockEvent>(account),
+            claim_events: event::new_event_handle<ClaimEvent>(account),
         });
     }
 
@@ -170,14 +191,35 @@ module launch::lock_staking {
 
         let lock_coin = coin::withdraw<BondCoin>(account, amount);
         let ls_entry = lock_stake<BondCoin>(validator, lock_type, lock_coin);
+        
+        // copy for event emit
+        let release_time = ls_entry.release_time;
+        let share = ls_entry.share;
+
+        // deposit lock stake to account store
         deposit_lock_stake_entry(account_addr, ls_entry);
+
+        // emit events
+        let ls_store = borrow_global_mut<LSStore<BondCoin>>(account_addr);
+        event::emit_event<LockEvent>(
+            &mut ls_store.lock_events,
+            LockEvent {
+                coin_type: type_name<BondCoin>(),
+                release_time,
+                share,
+            }
+        );
     }
 
     public entry fun claim_script<BondCoin>(account: &signer, index: u64) acquires ModuleStore, LSStore  {
-        let ls_entry = withdraw_lock_stake_entry<BondCoin>(account, index);
-        let (delegation, reward) = claim<BondCoin>(ls_entry);
-
         let account_addr = signer::address_of(account);
+        let ls_entry = withdraw_lock_stake_entry<BondCoin>(account, index);
+        
+        // copy for event emit
+        let share = ls_entry.share;
+
+        // claim delegation with lock staking rewards
+        let (delegation, reward) = claim<BondCoin>(ls_entry);
 
         // register account to staking module
         if (!staking::is_account_registered<BondCoin>(account_addr)) {
@@ -186,12 +228,28 @@ module launch::lock_staking {
 
         // deposit delegation to user address
         let d_reward = staking::deposit_delegation<BondCoin>(account_addr, delegation);
+        
+        // copy for event emit
+        let reward_amount = coin::value(&reward);
+        let delegation_reward_amount = coin::value(&d_reward);
 
         // merge delegation rewards with lock staking rewards
         coin::merge(&mut reward, d_reward);
 
         // deposit rewards to account coin store
         coin::deposit(account_addr, reward);
+
+        // emit events
+        let ls_store = borrow_global_mut<LSStore<BondCoin>>(account_addr);
+        event::emit_event<ClaimEvent>(
+            &mut ls_store.claim_events,
+            ClaimEvent {
+                coin_type: type_name<BondCoin>(),
+                reward_amount,
+                delegation_reward_amount,
+                share,
+            }
+        );
     }
 
     // Public Functions
@@ -270,6 +328,9 @@ module launch::lock_staking {
 
     ///////////////////////////////////////////////////////
     // Test
+
+    #[test_only]
+    use initia_std::string;
 
     #[test_only]
     use initia_std::staking::CoinLP as StakeCoin;
