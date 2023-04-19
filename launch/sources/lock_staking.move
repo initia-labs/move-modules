@@ -2,6 +2,7 @@ module launch::lock_staking {
     use std::error;
     use std::signer;
     use std::vector;
+    use std::option::Option;
     use std::string::String;
     use std::event::{Self, EventHandle};
     use std::type_info::type_name;
@@ -10,6 +11,8 @@ module launch::lock_staking {
     use initia_std::staking::{Self, Delegation, DelegationResponse};
     use initia_std::block;
     use initia_std::coin::{Self, Coin};
+    use initia_std::dex;
+    use initia_std::decimal128;
 
     // Errors
 
@@ -209,6 +212,84 @@ module launch::lock_staking {
                 share,
             }
         );
+    }
+
+    public entry fun provide_lock_stake_script<CoinA, CoinB, BondCoin>(
+        account: &signer,
+        coin_a_amount_in: u64,
+        coin_b_amount_in: u64,
+        min_liquidity: Option<u64>,
+        validator: String,
+        lock_type: u64,
+    ) acquires LSStore, ModuleStore {
+        let addr = signer::address_of(account);
+        let pool_info = dex::get_pool_info<CoinA, CoinB, BondCoin>();
+        let coin_a_amount = dex::get_coin_a_amount_from_pool_info_response(&pool_info);
+        let coin_b_amount = dex::get_coin_b_amount_from_pool_info_response(&pool_info);
+        let total_share = coin::supply<BondCoin>();
+
+        // calculate the best coin amount
+        let (coin_a, coin_b) = if (total_share == 0) {
+            (
+                coin::withdraw<CoinA>(account, coin_a_amount_in),
+                coin::withdraw<CoinB>(account, coin_b_amount_in),
+            )
+        } else {
+            let uinit_share_ratio = decimal128::from_ratio_u64(coin_a_amount_in, coin_a_amount);
+            let counterpart_share_ratio = decimal128::from_ratio_u64(coin_b_amount_in, coin_b_amount);
+            if (decimal128::val(&uinit_share_ratio) > decimal128::val(&counterpart_share_ratio)) {
+                coin_a_amount_in = decimal128::mul_u64(&counterpart_share_ratio, coin_a_amount);
+            } else {
+                coin_b_amount_in = decimal128::mul_u64(&uinit_share_ratio, coin_b_amount);
+            };
+
+            (
+                coin::withdraw<CoinA>(account, coin_a_amount_in),
+                coin::withdraw<CoinB>(account, coin_b_amount_in),
+            )
+        };
+
+        let liquidity_token = dex::provide_liquidity<CoinA, CoinB, BondCoin>(
+            account,
+            coin_a,
+            coin_b,
+            min_liquidity,
+        );
+
+        let liquiidty_amount = coin::value(&liquidity_token);
+
+        if (!coin::is_account_registered<BondCoin>(signer::address_of(account))) {
+            coin::register<BondCoin>(account);
+        };
+
+        coin::deposit(addr, liquidity_token);
+        lock_stake_script<BondCoin>(account, validator, lock_type, liquiidty_amount);
+    }
+
+    public entry fun single_asset_provide_lock_stake_script<CoinA, CoinB, BondCoin, ProvideCoin>(
+        account: &signer,
+        amount_in: u64,
+        min_liquidity: Option<u64>,
+        validator: String,
+        lock_type: u64,
+    ) acquires LSStore, ModuleStore {
+        let addr = signer::address_of(account);
+        let provide_coin = coin::withdraw<ProvideCoin>(account, amount_in);
+
+        let liquidity_token = dex::single_asset_provide_liquidity<CoinA, CoinB, BondCoin, ProvideCoin>(
+            account,
+            provide_coin,
+            min_liquidity,
+        );
+
+        let liquiidty_amount = coin::value(&liquidity_token);
+
+        if (!coin::is_account_registered<BondCoin>(signer::address_of(account))) {
+            coin::register<BondCoin>(account);
+        };
+
+        coin::deposit(addr, liquidity_token);
+        lock_stake_script<BondCoin>(account, validator, lock_type, liquiidty_amount);
     }
 
     public entry fun claim_script<BondCoin>(account: &signer, index: u64) acquires ModuleStore, LSStore  {
