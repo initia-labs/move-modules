@@ -301,7 +301,7 @@ module launch::lock_staking {
         lock_stake_script<BondCoin>(account, validator, lock_type, liquiidty_amount);
     }
 
-    public entry fun claim_script<BondCoin>(account: &signer, index: u64) acquires ModuleStore, LSStore  {
+    public entry fun claim_script<BondCoin>(account: &signer, index: u64) acquires ModuleStore, LSStore {
         let account_addr = signer::address_of(account);
         let ls_entry = withdraw_lock_stake_entry<BondCoin>(account, index);
 
@@ -320,6 +320,19 @@ module launch::lock_staking {
         coin::merge(&mut reward, d_reward);
 
         // deposit rewards to account coin store
+        coin::deposit(account_addr, reward);
+    }
+
+    public entry fun staking_reward_claim_script<BondCoin>(account: &signer, index: u64) acquires LSStore {
+        let account_addr = signer::address_of(account);
+
+        assert!(exists<LSStore<BondCoin>>(account_addr), error::not_found(ELS_STORE_NOT_FOUND));
+
+        let ls_store = borrow_global_mut<LSStore<BondCoin>>(account_addr);
+        assert!(vector::length(&ls_store.entries) > index, error::out_of_range(EINVALID_INDEX));
+
+        let ls_entry = vector::borrow_mut(&mut ls_store.entries, index);
+        let reward = staking_reward_claim(ls_entry);
         coin::deposit(account_addr, reward);
     }
 
@@ -449,6 +462,10 @@ module launch::lock_staking {
         );
 
         (delegation, reward)
+    }
+    
+    public fun staking_reward_claim<BondCoin>(ls_entry: &mut LSEntry<BondCoin>): Coin<RewardCoin> {
+        staking::claim_reward(&mut ls_entry.delegation)
     }
 
     fun delegation_res_to_delegation_info(delegation_res: &DelegationResponse): DelegationInfo {
