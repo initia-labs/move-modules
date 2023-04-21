@@ -31,7 +31,7 @@ module your_address::nft_controller {
         let addr = signer::address_of(account);
         let caps = borrow_global<Capabilities>(addr);
         let meta = Metadata { numeric_value, string_value };
-        let nft = nft::mint<Metadata>(account, token_id, token_uri, meta, &caps.mint_cap);
+        let nft = nft::mint<Metadata>(token_id, token_uri, meta, &caps.mint_cap);
         // make sure that `to` is registered
         nft::deposit<Metadata>(to, nft);
     }
