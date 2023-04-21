@@ -244,12 +244,12 @@ module launch::lock_staking {
                 coin::withdraw<CoinB>(account, coin_b_amount_in),
             )
         } else {
-            let uinit_share_ratio = decimal128::from_ratio_u64(coin_a_amount_in, coin_a_amount);
-            let counterpart_share_ratio = decimal128::from_ratio_u64(coin_b_amount_in, coin_b_amount);
-            if (decimal128::val(&uinit_share_ratio) > decimal128::val(&counterpart_share_ratio)) {
-                coin_a_amount_in = decimal128::mul_u64(&counterpart_share_ratio, coin_a_amount);
+            let coin_a_share_ratio = decimal128::from_ratio_u64(coin_a_amount_in, coin_a_amount);
+            let coin_b_share_ratio = decimal128::from_ratio_u64(coin_b_amount_in, coin_b_amount);
+            if (decimal128::val(&coin_a_share_ratio) > decimal128::val(&coin_b_share_ratio)) {
+                coin_a_amount_in = decimal128::mul_u64(&coin_b_share_ratio, coin_a_amount);
             } else {
-                coin_b_amount_in = decimal128::mul_u64(&uinit_share_ratio, coin_b_amount);
+                coin_b_amount_in = decimal128::mul_u64(&coin_a_share_ratio, coin_b_amount);
             };
 
             (
