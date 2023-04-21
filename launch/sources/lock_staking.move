@@ -455,13 +455,6 @@ module launch::lock_staking {
     use initia_std::staking::CoinLP as StakeCoin;
 
     #[test_only]
-    struct TestCapabilityStore<phantom CoinType> has key {
-        burn_cap: coin::BurnCapability<CoinType>,
-        freeze_cap: coin::FreezeCapability<CoinType>,
-        mint_cap: coin::MintCapability<CoinType>,
-    }
-
-    #[test_only]
     fun test_setup(c: &signer, m: &signer) {
         // staking setup
         staking::test_setup_with_pool_balances(c, 10000000000000, 10000000000000);
