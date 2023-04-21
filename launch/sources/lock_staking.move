@@ -140,6 +140,10 @@ module launch::lock_staking {
     
     #[view]
     public fun get_ls_entries<BondCoin>(addr: address): vector<LSEntryResponse> acquires LSStore {
+        if (!exists<LSStore<BondCoin>>(addr)) {
+            return vector[]
+        };
+
         let ls_store = borrow_global<LSStore<BondCoin>>(addr);
 
         let res = vector::empty<LSEntryResponse>();
