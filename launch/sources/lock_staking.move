@@ -4,14 +4,16 @@ module launch::lock_staking {
     use std::vector;
     use std::option::Option;
     use std::string::String;
-    use std::event::{Self, EventHandle};
+    use std::event;
     use std::type_info::type_name;
 
-    use initia_std::native_uinit::Coin as RewardCoin;
     use initia_std::staking::{Self, Delegation, DelegationResponse};
     use initia_std::block;
-    use initia_std::coin::{Self, Coin};
+    use initia_std::coin;
     use initia_std::dex;
+    use initia_std::primary_fungible_store;
+    use initia_std::object::{Self, ExtendRef, Object};
+    use initia_std::fungible_asset::{Self, FungibleAsset, Metadata};
 
     // Errors
 
@@ -24,29 +26,32 @@ module launch::lock_staking {
     const EINVALID_INDEX: u64 = 7;
     const ENOT_RELEASED: u64 = 8;
 
-    struct ModuleStore<phantom BondCoin> has key {
+    struct ModuleStore has key {
         lock_periods: vector<u64>,
         reward_weights: vector<u64>,
+        bond_coin_metadata: Object<Metadata>,
+        reward_coin_metadata: Object<Metadata>,
         share_sum: u64,
         // total reward pool
-        reward: Coin<RewardCoin>,
+        reward_store_extend_ref: ExtendRef,
         reward_amount: u64,
         end_time: u64,
-        lock_events: EventHandle<LockEvent>,
-        claim_events: EventHandle<ClaimEvent>,
     }
 
-    struct LSStore<phantom BondCoin> has key {
-        entries: vector<LSEntry<BondCoin>>,
-        deposit_events: EventHandle<DepositEvent>,
-        withdraw_events: EventHandle<WithdrawEvent>,
+    struct LSStore has key {
+        entries: vector<LSEntry>,
     }
 
-    struct LSEntry<phantom BondCoin> has store {
-        delegation: Delegation<BondCoin>,
+    struct LSEntry has store {
+        delegation: Delegation,
         release_time: u64,
         // reward share
         share: u64,
+    }
+
+    struct BondCoin has store {
+        metadata: Object<Metadata>,
+        amount: u64,
     }
 
     // Events
@@ -59,19 +64,21 @@ module launch::lock_staking {
     }
 
     struct ClaimEvent has drop, store {
-        coin_type: String,
+        coin_metadata: address,
         reward_amount: u64,
         delegation_reward_amount: u64,
         share: u64
     }
 
     struct DepositEvent has drop, store {
+        addr: address,
         delegation: DelegationInfo,
         release_time: u64,
         share: u64
     }
 
     struct WithdrawEvent has drop, store {
+        addr: address,
         delegation: DelegationInfo,
         release_time: u64,
         share: u64
@@ -100,24 +107,27 @@ module launch::lock_staking {
         share: u64,
     }
 
-    public entry fun initialize<BondCoin>(m: &signer, lock_periods: vector<u64>, reward_weights: vector<u64>) {
-        move_to(m, ModuleStore<BondCoin> {
+    public entry fun initialize(m: &signer, bond_coin_metadata: Object<Metadata>, reward_coin_metadata: Object<Metadata>, lock_periods: vector<u64>, reward_weights: vector<u64>) {
+        let reward_constructor_ref = object::create_object(@initia_std);
+        let reward_store_extend_ref = object::generate_extend_ref(&reward_constructor_ref);
+
+        move_to(m, ModuleStore {
             lock_periods,
             reward_weights,
+            bond_coin_metadata,
+            reward_coin_metadata,
             share_sum: 0,
-            reward: coin::zero(),
+            reward_store_extend_ref,
             reward_amount: 0,
             end_time: 0,
-            lock_events: event::new_event_handle<LockEvent>(m),
-            claim_events: event::new_event_handle<ClaimEvent>(m),
         });
     }
 
     // ViewFunctions
 
     /// util function to convert LSEntry to LSEntryResponse for third party queriers
-    public fun get_ls_entry_response_from_ls_entry<BondCoin>(ls_entry: &LSEntry<BondCoin>): LSEntryResponse {
-        let delegation_res = staking::get_delegation_response_from_delegation<BondCoin>(&ls_entry.delegation);
+    public fun get_ls_entry_response_from_ls_entry(ls_entry: &LSEntry): LSEntryResponse {
+        let delegation_res = staking::get_delegation_response_from_delegation(&ls_entry.delegation);
         LSEntryResponse {
             delegation: delegation_res,
             release_time: ls_entry.release_time,
@@ -126,8 +136,8 @@ module launch::lock_staking {
     }
 
     #[view]
-    public fun get_module_store<BondCoin>(): ModuleStoreResponse acquires ModuleStore {
-        let m_store = borrow_global<ModuleStore<BondCoin>>(@launch);
+    public fun get_module_store(): ModuleStoreResponse acquires ModuleStore {
+        let m_store = borrow_global<ModuleStore>(@launch);
         ModuleStoreResponse {
             lock_periods: m_store.lock_periods,
             reward_weights: m_store.reward_weights,
@@ -138,12 +148,12 @@ module launch::lock_staking {
     }
     
     #[view]
-    public fun get_ls_entries<BondCoin>(addr: address): vector<LSEntryResponse> acquires LSStore {
-        if (!exists<LSStore<BondCoin>>(addr)) {
+    public fun get_ls_entries(addr: address): vector<LSEntryResponse> acquires LSStore {
+        if (!exists<LSStore>(addr)) {
             return vector[]
         };
 
-        let ls_store = borrow_global<LSStore<BondCoin>>(addr);
+        let ls_store = borrow_global<LSStore>(addr);
 
         let res = vector::empty<LSEntryResponse>();
         let len = vector::length(&ls_store.entries);
@@ -158,8 +168,8 @@ module launch::lock_staking {
     }
 
     #[view]
-    public fun is_lock_staking_in_progress<BondCoin>(): bool acquires ModuleStore{
-        let m_store = borrow_global_mut<ModuleStore<BondCoin>>(@launch);
+    public fun is_lock_staking_in_progress(): bool acquires ModuleStore{
+        let m_store = borrow_global_mut<ModuleStore>(@launch);
 
         // check lock staking end time
         let (_, block_time) = block::get_block_info();
@@ -171,18 +181,18 @@ module launch::lock_staking {
     /// Configure end_time with reward coin deposit.
     /// `config` can be executed until lock_staking finished
     /// to add more rewards or to change end_time.
-    public entry fun config<BondCoin>(m: &signer, reward_amount: u64, end_time: u64) acquires ModuleStore {
+    public entry fun config(m: &signer, reward_amount: u64, end_time: u64) acquires ModuleStore {
         let account_addr = signer::address_of(m);
         assert!(account_addr == @launch, error::unauthenticated(EMODULE_OPERATION));
 
-        let m_store = borrow_global_mut<ModuleStore<BondCoin>>(account_addr);
+        let m_store = borrow_global_mut<ModuleStore>(@launch);
 
         if (reward_amount > 0) {
             // withdarw rewards from module coin store
-            let reward = coin::withdraw<RewardCoin>(m, reward_amount);
-            
+            let reward = primary_fungible_store::withdraw(m, m_store.reward_coin_metadata, reward_amount);
+
             // deposit coin to module store
-            coin::merge(&mut m_store.reward, reward);
+            primary_fungible_store::deposit(object::address_from_extend_ref(&m_store.reward_store_extend_ref), reward);
             m_store.reward_amount = m_store.reward_amount + reward_amount;
         };
 
@@ -203,101 +213,102 @@ module launch::lock_staking {
     }
 
     /// publish LSStore for a user
-    public entry fun register<BondCoin>(account: &signer) {
-        assert!(!exists<LSStore<BondCoin>>(signer::address_of(account)), error::already_exists(ELS_STORE_ALREADY_EXISTS));
-        move_to(account, LSStore<BondCoin>{
+    public entry fun register(account: &signer) {
+        assert!(!exists<LSStore>(signer::address_of(account)), error::already_exists(ELS_STORE_ALREADY_EXISTS));
+        move_to(account, LSStore{
             entries: vector::empty(),
-            deposit_events: event::new_event_handle<DepositEvent>(account),
-            withdraw_events: event::new_event_handle<WithdrawEvent>(account),
         });
     }
 
     /// Entry function for lock stake
-    public entry fun lock_stake_script<BondCoin>(account: &signer, validator: String, lock_type: u64, amount: u64) acquires LSStore, ModuleStore {
+    public entry fun lock_stake_script(account: &signer, validator: String, lock_type: u64, amount: u64) acquires LSStore, ModuleStore {
         let account_addr = signer::address_of(account);
-        if (!exists<LSStore<BondCoin>>(account_addr)) {
-            register<BondCoin>(account);
+        if (!exists<LSStore>(account_addr)) {
+            register(account);
         };
 
-        let lock_coin = coin::withdraw<BondCoin>(account, amount);
-        let ls_entry = lock_stake<BondCoin>(validator, lock_type, lock_coin);
+        let m_store = borrow_global_mut<ModuleStore>(@launch);
+
+        let lock_coin = primary_fungible_store::withdraw(account, m_store.bond_coin_metadata, amount);
+        let ls_entry = lock_stake(validator, lock_type, lock_coin);
 
         // deposit lock stake to account store
         deposit_lock_stake_entry(account_addr, ls_entry);
     }
 
-    public entry fun provide_lock_stake_script<CoinA, CoinB, BondCoin>(
+    public entry fun provide_lock_stake_script(
         account: &signer,
         coin_a_amount_in: u64,
         coin_b_amount_in: u64,
+        pair: Object<dex::Config>,
         min_liquidity: Option<u64>,
         validator: String,
         lock_type: u64,
     ) acquires LSStore, ModuleStore {
-        let (_, _, liquidity_amount) = dex::provide_liquidity_from_coin_store<CoinA, CoinB, BondCoin>(
+        let (_, _, liquidity_amount) = dex::provide_liquidity_from_coin_store(
             account,
             coin_a_amount_in,
             coin_b_amount_in,
+            pair,
             min_liquidity,
         );
 
-        lock_stake_script<BondCoin>(account, validator, lock_type, liquidity_amount);
+        lock_stake_script(account, validator, lock_type, liquidity_amount);
     }
 
-    public entry fun single_asset_provide_lock_stake_script<CoinA, CoinB, BondCoin, ProvideCoin>(
+    public entry fun single_asset_provide_lock_stake_script(
         account: &signer,
         amount_in: u64,
+        pair: Object<dex::Config>,
         min_liquidity: Option<u64>,
         validator: String,
         lock_type: u64,
     ) acquires LSStore, ModuleStore {
         let addr = signer::address_of(account);
-        let provide_coin = coin::withdraw<ProvideCoin>(account, amount_in);
+        let m_store = borrow_global_mut<ModuleStore>(@launch);
+        let provide_coin = primary_fungible_store::withdraw(account, m_store.bond_coin_metadata, amount_in);
 
-        let liquidity_token = dex::single_asset_provide_liquidity<CoinA, CoinB, BondCoin, ProvideCoin>(
+        let liquidity_token = dex::single_asset_provide_liquidity(
             account,
+            pair,
             provide_coin,
             min_liquidity,
         );
 
-        let liquiidty_amount = coin::value(&liquidity_token);
+        let liquiidty_amount = fungible_asset::amount(&liquidity_token);
 
-        if (!coin::is_account_registered<BondCoin>(signer::address_of(account))) {
-            coin::register<BondCoin>(account);
-        };
-
-        coin::deposit(addr, liquidity_token);
-        lock_stake_script<BondCoin>(account, validator, lock_type, liquiidty_amount);
+        primary_fungible_store::deposit(addr, liquidity_token);
+        lock_stake_script(account, validator, lock_type, liquiidty_amount);
     }
 
-    public entry fun claim_script<BondCoin>(account: &signer, index: u64) acquires ModuleStore, LSStore {
+    public entry fun claim_script(account: &signer, index: u64) acquires ModuleStore, LSStore {
         let account_addr = signer::address_of(account);
-        let ls_entry = withdraw_lock_stake_entry<BondCoin>(account, index);
+        let ls_entry = withdraw_lock_stake_entry(account, index);
 
         // claim delegation with lock staking rewards
-        let (delegation, reward) = claim<BondCoin>(ls_entry);
+        let (delegation, reward) = claim(ls_entry);
 
         // register account to staking module
-        if (!staking::is_account_registered<BondCoin>(account_addr)) {
-            staking::register<BondCoin>(account);
+        if (!staking::is_account_registered(account_addr)) {
+            staking::register(account);
         };
 
         // deposit delegation to user address
-        let d_reward = staking::deposit_delegation<BondCoin>(account_addr, delegation);
+        let d_reward = staking::deposit_delegation(account_addr, delegation);
 
         // merge delegation rewards with lock staking rewards
-        coin::merge(&mut reward, d_reward);
+        fungible_asset::merge(&mut reward, d_reward);
 
         // deposit rewards to account coin store
-        coin::deposit(account_addr, reward);
+        primary_fungible_store::deposit(account_addr, reward);
     }
 
-    public entry fun staking_reward_claim_script<BondCoin>(account: &signer, index: u64) acquires LSStore {
+    public entry fun staking_reward_claim_script(account: &signer, index: u64) acquires LSStore {
         let account_addr = signer::address_of(account);
 
-        assert!(exists<LSStore<BondCoin>>(account_addr), error::not_found(ELS_STORE_NOT_FOUND));
+        assert!(exists<LSStore>(account_addr), error::not_found(ELS_STORE_NOT_FOUND));
 
-        let ls_store = borrow_global_mut<LSStore<BondCoin>>(account_addr);
+        let ls_store = borrow_global_mut<LSStore>(account_addr);
         assert!(vector::length(&ls_store.entries) > index, error::out_of_range(EINVALID_INDEX));
 
         let ls_entry = vector::borrow_mut(&mut ls_store.entries, index);
@@ -308,14 +319,14 @@ module launch::lock_staking {
     // Public Functions
 
     /// Execute lock staking and return created LSEntry
-    public fun lock_stake<BondCoin>(validator: String, lock_type: u64, lock_coin: Coin<BondCoin>): LSEntry<BondCoin> acquires ModuleStore {
+    public fun lock_stake(validator: String, lock_type: u64, lock_coin: FungibleAsset): LSEntry acquires ModuleStore {
         assert!(lock_type < 4, error::out_of_range(EINVALID_LOCK_TYPE));
 
-        let bond_amount = coin::value(&lock_coin);
-        let delegation = staking::delegate<BondCoin>(validator, lock_coin);
+        let bond_amount = fungible_asset::amount(&lock_coin);
+        let delegation = staking::delegate(validator, lock_coin);
 
         // after delegation, load module store to compute reward share
-        let m_store = borrow_global_mut<ModuleStore<BondCoin>>(@launch);
+        let m_store = borrow_global_mut<ModuleStore>(@launch);
 
         // check lock staking end time
         let (_, block_time) = block::get_block_info();
@@ -331,8 +342,7 @@ module launch::lock_staking {
         let (_, block_time) = block::get_block_info();
 
         // emit events
-        event::emit_event<LockEvent>(
-            &mut m_store.lock_events,
+        event::emit(
             LockEvent {
                 coin_type: type_name<BondCoin>(),
                 bond_amount,
@@ -341,7 +351,7 @@ module launch::lock_staking {
             }
         );
 
-        LSEntry<BondCoin> {
+        LSEntry {
             delegation,
             release_time: block_time + lock_period,
             share,
@@ -349,21 +359,21 @@ module launch::lock_staking {
     }
 
     // Deposit LSEntry to user's LSStore
-    public fun deposit_lock_stake_entry<BondCoin>(account_addr: address, ls_entry: LSEntry<BondCoin>) acquires LSStore {
-        assert!(exists<LSStore<BondCoin>>(account_addr), error::not_found(ELS_STORE_NOT_FOUND));
+    public fun deposit_lock_stake_entry(account_addr: address, ls_entry: LSEntry) acquires LSStore {
+        assert!(exists<LSStore>(account_addr), error::not_found(ELS_STORE_NOT_FOUND));
         
         // copy for event emit
-        let delegation_res = staking::get_delegation_response_from_delegation<BondCoin>(&ls_entry.delegation);
+        let delegation_res = staking::get_delegation_response_from_delegation(&ls_entry.delegation);
         let release_time = ls_entry.release_time;
         let share = ls_entry.share;
 
-        let ls_store = borrow_global_mut<LSStore<BondCoin>>(account_addr);
+        let ls_store = borrow_global_mut<LSStore>(account_addr);
         vector::push_back(&mut ls_store.entries, ls_entry);
 
         // emit events
-        event::emit_event<DepositEvent>(
-            &mut ls_store.deposit_events,
+        event::emit(
             DepositEvent {
+                addr: account_addr,
                 delegation: delegation_res_to_delegation_info(&delegation_res),
                 release_time,
                 share,
@@ -372,22 +382,22 @@ module launch::lock_staking {
     }
 
     /// Withdraw LSEntry of index
-    public fun withdraw_lock_stake_entry<BondCoin>(account: &signer, index: u64): LSEntry<BondCoin> acquires LSStore {
+    public fun withdraw_lock_stake_entry(account: &signer, index: u64): LSEntry acquires LSStore {
         let account_addr = signer::address_of(account);
-        assert!(exists<LSStore<BondCoin>>(account_addr), error::not_found(ELS_STORE_NOT_FOUND));
+        assert!(exists<LSStore>(account_addr), error::not_found(ELS_STORE_NOT_FOUND));
 
-        let ls_store = borrow_global_mut<LSStore<BondCoin>>(account_addr);
+        let ls_store = borrow_global_mut<LSStore>(account_addr);
         assert!(vector::length(&ls_store.entries) > index, error::out_of_range(EINVALID_INDEX));
 
         // O(n) cost, but want to keep the order for front UX
         let ls_entry = vector::remove(&mut ls_store.entries, index);
 
-        let delegation_res = staking::get_delegation_response_from_delegation<BondCoin>(&ls_entry.delegation);
+        let delegation_res = staking::get_delegation_response_from_delegation(&ls_entry.delegation);
 
         // emit events
-        event::emit_event<WithdrawEvent>(
-            &mut ls_store.withdraw_events,
+        event::emit<WithdrawEvent>(
             WithdrawEvent {
+                addr: account_addr,
                 delegation: delegation_res_to_delegation_info(&delegation_res),
                 release_time: ls_entry.release_time,
                 share: ls_entry.share,
@@ -398,8 +408,8 @@ module launch::lock_staking {
     }
 
     /// Claim lock staking rewards with Delegation
-    public fun claim<BondCoin>(ls_entry: LSEntry<BondCoin>): (Delegation<BondCoin>, Coin<RewardCoin>) acquires ModuleStore {
-        let m_store = borrow_global_mut<ModuleStore<BondCoin>>(@launch);
+    public fun claim(ls_entry: LSEntry): (Delegation, FungibleAsset) acquires ModuleStore {
+        let m_store = borrow_global_mut<ModuleStore>(@launch);
 
         // check time constranits
         let (_, block_time) = block::get_block_info();
@@ -408,7 +418,7 @@ module launch::lock_staking {
         assert!(block_time > ls_entry.release_time, error::unavailable(ENOT_RELEASED));
 
         // destroy ls_entry
-        let LSEntry<BondCoin> {
+        let LSEntry {
             delegation,
             release_time: _,
             share,
@@ -416,14 +426,14 @@ module launch::lock_staking {
 
         // to prevent overflow
         let reward_amount = ((m_store.reward_amount as u128) * (share as u128) / (m_store.share_sum as u128) as u64);
-        let reward = coin::extract(&mut m_store.reward, reward_amount);
+        let reward_store_signer = object::generate_signer_for_extending(&m_store.reward_store_extend_ref);
+        let reward = primary_fungible_store::withdraw(&reward_store_signer, m_store.reward_coin_metadata, reward_amount);
 
-        let delegation_res = staking::get_delegation_response_from_delegation<BondCoin>(&delegation);
+        let delegation_res = staking::get_delegation_response_from_delegation(&delegation);
 
-        event::emit_event<ClaimEvent>(
-            &mut m_store.claim_events,
+        event::emit<ClaimEvent>(
             ClaimEvent {
-                coin_type: type_name<BondCoin>(),
+                coin_metadata: object::object_address(m_store.reward_coin_metadata),
                 reward_amount,
                 delegation_reward_amount: staking::get_unclaimed_reward_from_delegation_response(&delegation_res),
                 share,
@@ -433,7 +443,7 @@ module launch::lock_staking {
         (delegation, reward)
     }
     
-    public fun staking_reward_claim<BondCoin>(ls_entry: &mut LSEntry<BondCoin>): Coin<RewardCoin> {
+    public fun staking_reward_claim(ls_entry: &mut LSEntry): FungibleAsset {
         staking::claim_reward(&mut ls_entry.delegation)
     }
 
@@ -452,13 +462,12 @@ module launch::lock_staking {
     use std::string;
 
     #[test_only]
-    use initia_std::staking::CoinLP as StakeCoin;
-
-    #[test_only]
     fun test_setup(c: &signer, m: &signer) {
         // staking setup
-        staking::test_setup_with_pool_balances(c, 10000000000000, 10000000000000);
-        staking::set_staking_share_ratio<StakeCoin>(b"val", 1, 1);
+        staking::test_setup(c);
+        let bond_metadata = staking::staking_metadata_for_test();
+        let reward_metadata = coin::metadata(signer::address_of(c), string::utf8(b"uinit"));
+        staking::set_staking_share_ratio(b"val", &bond_metadata, 1, 1);
 
         // module setup
         let lock_periods = vector::empty();
@@ -474,13 +483,13 @@ module launch::lock_staking {
         vector::push_back(&mut reward_weights, 10);
         vector::push_back(&mut reward_weights, 25);
 
-        initialize<StakeCoin>(m, lock_periods, reward_weights);
+        initialize(m, bond_metadata, reward_metadata, lock_periods, reward_weights);
     }
 
     #[test_only]
     fun fund_bond(c: &signer, u_addr: address, amt: u64) {
-        let coin = coin::withdraw<StakeCoin>(c, amt);
-        coin::deposit<StakeCoin>(u_addr, coin);
+        let coin = primary_fungible_store::withdraw(c, staking::staking_metadata_for_test(), amt);
+        primary_fungible_store::deposit(u_addr, coin);
     }
 
     ////////////////////////////////////////////////////////
@@ -492,41 +501,39 @@ module launch::lock_staking {
         m: &signer,
     ) acquires ModuleStore {
         test_setup(c, m);
-        staking::fund_reward_coin(signer::address_of(c), signer::address_of(m), 2000000);
-
+        staking::fund_reward_coin(c, signer::address_of(m), 2000000);
         block::set_block_info(1, 1000000);
 
-        config<StakeCoin>(m, 1000000, 1003600);
-
-        let res = get_module_store<StakeCoin>();
+        config(m, 1000000, 1003600);
+        let res = get_module_store();
         assert!(res.end_time == 1003600, 0);
         assert!(res.reward_amount == 1000000, 1);
 
         // add more fund
-        config<StakeCoin>(m, 1000000, 1003600);
-        let res = get_module_store<StakeCoin>();
+        config(m, 1000000, 1003600);
+        let res = get_module_store();
         assert!(res.end_time == 1003600, 0);
         assert!(res.reward_amount == 2000000, 1);
 
         // update end time
-        config<StakeCoin>(m, 0, 1007200);
-        let res = get_module_store<StakeCoin>();
+        config(m, 0, 1007200);
+        let res = get_module_store();
         assert!(res.end_time == 1007200, 0);
         assert!(res.reward_amount == 2000000, 1);
     }
 
     #[test(c = @0x1, m = @0x2)]
-    #[expected_failure(abort_code = 0x10007, location = coin)]
+    #[expected_failure(abort_code = 0x10004, location = fungible_asset)]
     fun test_config_insufficient_funds(
         c: &signer,
         m: &signer,
     ) acquires ModuleStore {
         test_setup(c, m);
-        staking::fund_reward_coin(signer::address_of(c), signer::address_of(m), 1000000);
+        staking::fund_reward_coin(c, signer::address_of(m), 1000000);
 
         block::set_block_info(1, 1000000);
 
-        config<StakeCoin>(m, 2000000, 2000000);
+        config(m, 2000000, 2000000);
     }
 
     #[test(c = @0x1, m = @0x2)]
@@ -536,11 +543,11 @@ module launch::lock_staking {
         m: &signer,
     ) acquires ModuleStore {
         test_setup(c, m);
-        staking::fund_reward_coin(signer::address_of(c), signer::address_of(m), 1000000);
+        staking::fund_reward_coin(c, signer::address_of(m), 1000000);
 
         block::set_block_info(1, 1000000);
 
-        config<StakeCoin>(m, 1000000, 1000000);
+        config(m, 1000000, 1000000);
     }
 
     #[test(c = @0x1, m = @0x2)]
@@ -550,18 +557,18 @@ module launch::lock_staking {
         m: &signer,
     ) acquires ModuleStore {
         test_setup(c, m);
-        staking::fund_reward_coin(signer::address_of(c), signer::address_of(m), 2000000);
+        staking::fund_reward_coin(c, signer::address_of(m), 2000000);
 
         block::set_block_info(1, 1000000);
 
-        config<StakeCoin>(m, 1000000, 2000000);
+        config(m, 1000000, 2000000);
 
-        let res = get_module_store<StakeCoin>();
+        let res = get_module_store();
         assert!(res.end_time == 2000000, 0);
         assert!(res.reward_amount == 1000000, 1);
 
         // update end time to invalid one
-        config<StakeCoin>(m, 0, 1000000);
+        config(m, 0, 1000000);
     }
 
     ////////////////////////////////////////////////////////
@@ -574,27 +581,26 @@ module launch::lock_staking {
         u: &signer,
     ) acquires ModuleStore, LSStore {
         test_setup(c, m);
-        staking::fund_reward_coin(signer::address_of(c), signer::address_of(m), 2000000);
+        staking::fund_reward_coin(c, signer::address_of(m), 2000000);
 
         block::set_block_info(1, 1000000);
 
-        config<StakeCoin>(m, 1000000, 1003600);
+        config(m, 1000000, 1003600);
 
-        let res = get_module_store<StakeCoin>();
+        let res = get_module_store();
         assert!(res.end_time == 1003600, 0);
         assert!(res.reward_amount == 1000000, 1);
 
         // execute lock stake
-        coin::register<StakeCoin>(u);
         fund_bond(c, signer::address_of(u), 4000000);
-        lock_stake_script<StakeCoin>(u, string::utf8(b"val"), 0, 1000000);
-        lock_stake_script<StakeCoin>(u, string::utf8(b"val"), 1, 1000000);
-        lock_stake_script<StakeCoin>(u, string::utf8(b"val"), 2, 1000000);
-        lock_stake_script<StakeCoin>(u, string::utf8(b"val"), 3, 1000000);
+        lock_stake_script(u, string::utf8(b"val"), 0, 1000000);
+        lock_stake_script(u, string::utf8(b"val"), 1, 1000000);
+        lock_stake_script(u, string::utf8(b"val"), 2, 1000000);
+        lock_stake_script(u, string::utf8(b"val"), 3, 1000000);
 
         // view ls entries
-        let m_store = get_module_store<StakeCoin>();
-        let ls_entries = get_ls_entries<StakeCoin>(signer::address_of(u));
+        let m_store = get_module_store();
+        let ls_entries = get_ls_entries(signer::address_of(u));
         assert!(vector::borrow<LSEntryResponse>(&ls_entries, 0).share == 1000000 * *vector::borrow<u64>(&m_store.reward_weights, 0), 0);
         assert!(vector::borrow<LSEntryResponse>(&ls_entries, 1).share == 1000000 * *vector::borrow<u64>(&m_store.reward_weights, 1), 1);
         assert!(vector::borrow<LSEntryResponse>(&ls_entries, 2).share == 1000000 * *vector::borrow<u64>(&m_store.reward_weights, 2), 2);
@@ -614,52 +620,51 @@ module launch::lock_staking {
         relayer: &signer,
     ) acquires ModuleStore, LSStore {
         test_setup(c, m);
-        staking::fund_reward_coin(signer::address_of(c), signer::address_of(m), 2000000);
+        staking::fund_reward_coin(c, signer::address_of(m), 2000000);
 
         block::set_block_info(1, 1000000);
 
-        config<StakeCoin>(m, 1000000, 1003600);
+        config(m, 1000000, 1003600);
 
-        let res = get_module_store<StakeCoin>();
+        let res = get_module_store();
         assert!(res.end_time == 1003600, 0);
         assert!(res.reward_amount == 1000000, 1);
 
         // execute lock stake
-        coin::register<StakeCoin>(u);
         fund_bond(c, signer::address_of(u), 4000000);
-        lock_stake_script<StakeCoin>(u, string::utf8(b"val"), 0, 1000000);
-        lock_stake_script<StakeCoin>(u, string::utf8(b"val"), 1, 1000000);
-        lock_stake_script<StakeCoin>(u, string::utf8(b"val"), 2, 1000000);
-        lock_stake_script<StakeCoin>(u, string::utf8(b"val"), 3, 1000000);
+        lock_stake_script(u, string::utf8(b"val"), 0, 1000000);
+        lock_stake_script(u, string::utf8(b"val"), 1, 1000000);
+        lock_stake_script(u, string::utf8(b"val"), 2, 1000000);
+        lock_stake_script(u, string::utf8(b"val"), 3, 1000000);
 
-        staking::fund_reward_coin(signer::address_of(c), signer::address_of(relayer), 4000000);
-        staking::deposit_reward_for_test<StakeCoin>(c, vector[string::utf8(b"val")], vector[4000000]);
-        staking_reward_claim_script<StakeCoin>(u, 0);
-        assert!(coin::balance<RewardCoin>(signer::address_of(u)) == 1000000, 0);
+        staking::fund_reward_coin(c, signer::address_of(relayer), 4000000);
+        staking::deposit_reward_for_chain(c, staking::staking_metadata_for_test(), vector[string::utf8(b"val")], vector[4000000]);
+        staking_reward_claim_script(u, 0);
+        let m_store = borrow_global<ModuleStore>(@launch);
+        assert!(primary_fungible_store::balance(signer::address_of(u), m_store.reward_coin_metadata) == 1000000, 2);
     }
 
     #[test(c = @0x1, m = @0x2, u = @0x3)]
-    #[expected_failure(abort_code = 0x10007, location = coin)]
+    #[expected_failure(abort_code = 0x10004, location = fungible_asset)]
     fun test_lock_stake_insufficient_funds(
         c: &signer,
         m: &signer,
         u: &signer,
     ) acquires ModuleStore, LSStore {
         test_setup(c, m);
-        staking::fund_reward_coin(signer::address_of(c), signer::address_of(m), 2000000);
+        staking::fund_reward_coin(c, signer::address_of(m), 2000000);
 
         block::set_block_info(1, 1000000);
 
-        config<StakeCoin>(m, 1000000, 1003600);
+        config(m, 1000000, 1003600);
 
-        let res = get_module_store<StakeCoin>();
+        let res = get_module_store();
         assert!(res.end_time == 1003600, 0);
         assert!(res.reward_amount == 1000000, 1);
 
         // execute lock stake
-        coin::register<StakeCoin>(u);
         fund_bond(c, signer::address_of(u), 1000000);
-        lock_stake_script<StakeCoin>(u, string::utf8(b"val"), 0, 1000001);
+        lock_stake_script(u, string::utf8(b"val"), 0, 1000001);
     }
 
     #[test(c = @0x1, m = @0x2, u = @0x3)]
@@ -670,20 +675,19 @@ module launch::lock_staking {
         u: &signer,
     ) acquires ModuleStore, LSStore {
         test_setup(c, m);
-        staking::fund_reward_coin(signer::address_of(c), signer::address_of(m), 2000000);
+        staking::fund_reward_coin(c, signer::address_of(m), 2000000);
 
         block::set_block_info(1, 1000000);
 
-        config<StakeCoin>(m, 1000000, 1003600);
+        config(m, 1000000, 1003600);
 
-        let res = get_module_store<StakeCoin>();
+        let res = get_module_store();
         assert!(res.end_time == 1003600, 0);
         assert!(res.reward_amount == 1000000, 1);
 
         // execute lock stake
-        coin::register<StakeCoin>(u);
         fund_bond(c, signer::address_of(u), 1000000);
-        lock_stake_script<StakeCoin>(u, string::utf8(b"val"), 5, 1000000);
+        lock_stake_script(u, string::utf8(b"val"), 5, 1000000);
     }
 
     #[test(c = @0x1, m = @0x2, u = @0x3)]
@@ -694,24 +698,23 @@ module launch::lock_staking {
         u: &signer,
     ) acquires ModuleStore, LSStore {
         test_setup(c, m);
-        staking::fund_reward_coin(signer::address_of(c), signer::address_of(m), 2000000);
+        staking::fund_reward_coin(c, signer::address_of(m), 2000000);
 
         block::set_block_info(1, 1000000);
 
-        config<StakeCoin>(m, 1000000, 1003600);
+        config(m, 1000000, 1003600);
 
-        let res = get_module_store<StakeCoin>();
+        let res = get_module_store();
         assert!(res.end_time == 1003600, 0);
         assert!(res.reward_amount == 1000000, 1);
 
         // update block time to end of lock staking
-        let m_store = get_module_store<StakeCoin>();
+        let m_store = get_module_store();
         block::set_block_info(1, m_store.end_time+1);
 
         // execute lock stake
-        coin::register<StakeCoin>(u);
         fund_bond(c, signer::address_of(u), 1000000);
-        lock_stake_script<StakeCoin>(u, string::utf8(b"val"), 0, 1000000);
+        lock_stake_script(u, string::utf8(b"val"), 0, 1000000);
     }
 
     ////////////////////////////////////////////////////////
@@ -724,53 +727,51 @@ module launch::lock_staking {
         u: &signer,
     ) acquires ModuleStore, LSStore {
         test_setup(c, m);
-        coin::register<StakeCoin>(u);
-        coin::register<RewardCoin>(u);
 
         block::set_block_info(1, 1000000);
-        staking::fund_reward_coin(signer::address_of(c), signer::address_of(m), 2000000);
+        staking::fund_reward_coin(c, signer::address_of(m), 2000000);
 
         let reward_amount = 1000000;
         let end_time = 1003600;
-        config<StakeCoin>(m, reward_amount, end_time);
+        config(m, reward_amount, end_time);
 
-        let res = get_module_store<StakeCoin>();
+        let res = get_module_store();
         assert!(res.end_time == end_time, 0);
         assert!(res.reward_amount == reward_amount, 1);
 
         // execute lock stake
         let stake_amount = 1000000;
         fund_bond(c, signer::address_of(u), 4 * stake_amount);
-        lock_stake_script<StakeCoin>(u, string::utf8(b"val"), 0, stake_amount);
-        lock_stake_script<StakeCoin>(u, string::utf8(b"val"), 1, stake_amount);
-        lock_stake_script<StakeCoin>(u, string::utf8(b"val"), 2, stake_amount);
-        lock_stake_script<StakeCoin>(u, string::utf8(b"val"), 3, stake_amount);
+        lock_stake_script(u, string::utf8(b"val"), 0, stake_amount);
+        lock_stake_script(u, string::utf8(b"val"), 1, stake_amount);
+        lock_stake_script(u, string::utf8(b"val"), 2, stake_amount);
+        lock_stake_script(u, string::utf8(b"val"), 3, stake_amount);
 
-        let m_store = get_module_store<StakeCoin>();
+        let m_store = get_module_store();
         
         block::set_block_info(1, 1000000 + *vector::borrow(&m_store.lock_periods, 0) + 1);
-        claim_script<StakeCoin>(u, 0);
+        claim_script(u, 0);
         
         let claim_amount_0 = reward_amount * (stake_amount * *vector::borrow(&m_store.reward_weights, 0)) / m_store.share_sum;
-        assert!(coin::balance<RewardCoin>(signer::address_of(u)) == claim_amount_0, 0);
+        assert!(primary_fungible_store::balance(signer::address_of(u), reward_coin_metadata()) == claim_amount_0, 0);
 
         block::set_block_info(1, 1000000 + *vector::borrow(&m_store.lock_periods, 1) + 1);
-        claim_script<StakeCoin>(u, 0);
+        claim_script(u, 0);
 
         let claim_amount_1 = reward_amount * (stake_amount * *vector::borrow(&m_store.reward_weights, 1)) / m_store.share_sum;
-        assert!(coin::balance<RewardCoin>(signer::address_of(u)) == claim_amount_0 + claim_amount_1, 1);
+        assert!(coin::balance(signer::address_of(u), reward_coin_metadata()) == claim_amount_0 + claim_amount_1, 1);
 
         block::set_block_info(1, 1000000 + *vector::borrow(&m_store.lock_periods, 2) + 1);
-        claim_script<StakeCoin>(u, 0);
+        claim_script(u, 0);
 
         let claim_amount_2 = reward_amount * (stake_amount * *vector::borrow(&m_store.reward_weights, 2)) / m_store.share_sum;
-        assert!(coin::balance<RewardCoin>(signer::address_of(u)) == claim_amount_0 + claim_amount_1 + claim_amount_2, 2);
+        assert!(coin::balance(signer::address_of(u), reward_coin_metadata()) == claim_amount_0 + claim_amount_1 + claim_amount_2, 2);
 
         block::set_block_info(1, 1000000 + *vector::borrow(&m_store.lock_periods, 3) + 1);
-        claim_script<StakeCoin>(u, 0);
+        claim_script(u, 0);
         
         let claim_amount_3 = reward_amount * (stake_amount * *vector::borrow(&m_store.reward_weights, 3)) / m_store.share_sum;
-        assert!(coin::balance<RewardCoin>(signer::address_of(u)) == claim_amount_0 + claim_amount_1 + claim_amount_2 + claim_amount_3, 0);
+        assert!(coin::balance(signer::address_of(u), reward_coin_metadata()) == claim_amount_0 + claim_amount_1 + claim_amount_2 + claim_amount_3, 0);
     }
 
     #[test(c = @0x1, m = @0x2, u = @0x3)]
@@ -781,27 +782,25 @@ module launch::lock_staking {
         u: &signer,
     ) acquires ModuleStore, LSStore {
         test_setup(c, m);
-        coin::register<StakeCoin>(u);
-        coin::register<RewardCoin>(u);
 
         block::set_block_info(1, 1000000);
-        staking::fund_reward_coin(signer::address_of(c), signer::address_of(m), 2000000);
+        staking::fund_reward_coin(c, signer::address_of(m), 2000000);
 
         let reward_amount = 1000000;
         let end_time = 1003600;
-        config<StakeCoin>(m, reward_amount, end_time);
+        config(m, reward_amount, end_time);
 
-        let res = get_module_store<StakeCoin>();
+        let res = get_module_store();
         assert!(res.end_time == end_time, 0);
         assert!(res.reward_amount == reward_amount, 1);
 
         // execute lock stake
         let stake_amount = 1000000;
         fund_bond(c, signer::address_of(u), 4 * stake_amount);
-        lock_stake_script<StakeCoin>(u, string::utf8(b"val"), 0, stake_amount);
+        lock_stake_script(u, string::utf8(b"val"), 0, stake_amount);
         
         block::set_block_info(1, end_time - 1);
-        claim_script<StakeCoin>(u, 0);
+        claim_script(u, 0);
     }
 
     #[test(c = @0x1, m = @0x2, u = @0x3)]
@@ -812,28 +811,31 @@ module launch::lock_staking {
         u: &signer,
     ) acquires ModuleStore, LSStore {
         test_setup(c, m);
-        coin::register<StakeCoin>(u);
-        coin::register<RewardCoin>(u);
 
         block::set_block_info(1, 1000000);
-        staking::fund_reward_coin(signer::address_of(c), signer::address_of(m), 2000000);
+        staking::fund_reward_coin(c, signer::address_of(m), 2000000);
 
         let reward_amount = 1000000;
         let end_time = 1003600;
-        config<StakeCoin>(m, reward_amount, end_time);
+        config(m, reward_amount, end_time);
 
-        let res = get_module_store<StakeCoin>();
+        let res = get_module_store();
         assert!(res.end_time == end_time, 0);
         assert!(res.reward_amount == reward_amount, 1);
 
         // execute lock stake
         let stake_amount = 1000000;
         fund_bond(c, signer::address_of(u), 4 * stake_amount);
-        lock_stake_script<StakeCoin>(u, string::utf8(b"val"), 0, stake_amount);
+        lock_stake_script(u, string::utf8(b"val"), 0, stake_amount);
         
-        let m_store = get_module_store<StakeCoin>();
+        let m_store = get_module_store();
         
         block::set_block_info(1, 1000000 + *vector::borrow(&m_store.lock_periods, 0) - 1);
-        claim_script<StakeCoin>(u, 0);
+        claim_script(u, 0);
+    }
+
+    #[test_only]
+    fun reward_coin_metadata(): Object<Metadata> {
+        coin::metadata(@initia_std, string::utf8(b"uinit"))
     }
 }
