@@ -11,6 +11,6 @@ launch = "_"
 launch = "0x2"
 
 [dependencies]
-MoveStdlib = { git = "https://github.com/initia-labs/initiavm.git", subdir = "crates/stdlib/src/move_stdlib", rev = "aaefd02a8e782f7ca5b6e8a7db9e9017ab46507e" }
-MoveNursery = { git = "https://github.com/initia-labs/initiavm.git", subdir = "crates/stdlib/src/move_nursery", rev = "aaefd02a8e782f7ca5b6e8a7db9e9017ab46507e" }
-InitiaStdlib = { git = "https://github.com/initia-labs/initiavm.git", subdir = "crates/stdlib/src/initia_stdlib", rev = "aaefd02a8e782f7ca5b6e8a7db9e9017ab46507e" }
+InitiaStdlib = { local = "../../../backends/initiavm/precompile/modules/initia_stdlib" }
+MoveStdlib = { local = "../../../backends/initiavm/precompile/modules/move_stdlib" }
+MoveNursery = { local = "../../../backends/initiavm/precompile/modules/move_nursery" }
