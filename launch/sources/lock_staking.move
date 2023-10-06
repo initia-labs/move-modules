@@ -5,7 +5,6 @@ module launch::lock_staking {
     use std::option::Option;
     use std::string::String;
     use std::event;
-    use std::type_info::type_name;
 
     use initia_std::staking::{Self, Delegation, DelegationResponse};
     use initia_std::block;
@@ -49,15 +48,10 @@ module launch::lock_staking {
         share: u64,
     }
 
-    struct BondCoin has store {
-        metadata: Object<Metadata>,
-        amount: u64,
-    }
-
     // Events
 
     struct LockEvent has drop, store {
-        coin_type: String,
+        coin_metadata: address,
         bond_amount: u64,
         release_time: u64,
         share: u64,
@@ -323,6 +317,7 @@ module launch::lock_staking {
         assert!(lock_type < 4, error::out_of_range(EINVALID_LOCK_TYPE));
 
         let bond_amount = fungible_asset::amount(&lock_coin);
+        let coin_metadata = object::object_address(fungible_asset::asset_metadata(&lock_coin));
         let delegation = staking::delegate(validator, lock_coin);
 
         // after delegation, load module store to compute reward share
@@ -344,7 +339,7 @@ module launch::lock_staking {
         // emit events
         event::emit(
             LockEvent {
-                coin_type: type_name<BondCoin>(),
+                coin_metadata,
                 bond_amount,
                 release_time: block_time + lock_period,
                 share,

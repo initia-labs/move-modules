@@ -39,7 +39,7 @@ module launch::vesting {
 
     struct DepositEvent has drop, store {
         addr: address,
-        coin_type: address,
+        coin_metadata: address,
         initial_amount: u64,
         released_amount: u64,
         start_time: u64,
@@ -49,7 +49,7 @@ module launch::vesting {
 
     struct WithdrawEvent has drop, store {
         addr: address,
-        coin_type: address,
+        coin_metadata: address,
         initial_amount: u64,
         released_amount: u64,
         start_time: u64,
@@ -59,12 +59,12 @@ module launch::vesting {
 
     struct ClaimEvent has drop, store {
         addr: address,
-        coin_type: address,
+        coin_metadata: address,
         amount: u64,
     }
 
     struct ScheduleResponse has drop {
-        coin_type: address,
+        coin_metadata: address,
         initial_amount: u64,
         released_amount: u64,
         start_time: u64,
@@ -82,7 +82,7 @@ module launch::vesting {
         while (i < vector::length(&v_store.schedules)) {
             let schedule = vector::borrow(&v_store.schedules, i);
             vector::push_back(&mut res, ScheduleResponse {
-                coin_type: wrapped_coin_metadata_address(&schedule.vesting_coin),
+                coin_metadata: wrapped_coin_metadata_address(&schedule.vesting_coin),
                 initial_amount: schedule.initial_amount,
                 released_amount: schedule.released_amount,
                 start_time: schedule.start_time,
@@ -129,7 +129,7 @@ module launch::vesting {
 
         let schedule = vector::borrow_mut<Schedule>(&mut v_store.schedules, index);
         let claimed_coin = claim(schedule);
-        let coin_type = wrapped_coin_metadata_address(&schedule.vesting_coin);
+        let coin_metadata = wrapped_coin_metadata_address(&schedule.vesting_coin);
 
         if (coin_wrapper::amount(&schedule.vesting_coin) == 0) {
             destroy_schedule(withdraw_schedule(account, index));
@@ -142,7 +142,7 @@ module launch::vesting {
             event::emit<ClaimEvent>(
                 ClaimEvent {
                     addr: account_addr,
-                    coin_type,
+                    coin_metadata,
                     amount: claimed_coin_amount,
                 },
             );
@@ -177,7 +177,7 @@ module launch::vesting {
         event::emit<DepositEvent>(
             DepositEvent {
                 addr: account_addr,
-                coin_type: wrapped_coin_metadata_address(&schedule.vesting_coin),
+                coin_metadata: wrapped_coin_metadata_address(&schedule.vesting_coin),
                 initial_amount: schedule.initial_amount,
                 released_amount: schedule.released_amount,
                 start_time: schedule.start_time,
@@ -200,7 +200,7 @@ module launch::vesting {
         event::emit<WithdrawEvent>(
             WithdrawEvent {
                 addr: account_addr,
-                coin_type: wrapped_coin_metadata_address(&schedule.vesting_coin),
+                coin_metadata: wrapped_coin_metadata_address(&schedule.vesting_coin),
                 initial_amount: schedule.initial_amount,
                 released_amount: schedule.released_amount,
                 start_time: schedule.start_time,
@@ -309,7 +309,7 @@ module launch::vesting {
         fund_vesting_coin(signer::address_of(c), signer::address_of(m), 2000000);
         let c_addr = signer::address_of(c);
         let metadata = vesting_coin_metadata(c_addr);
-        let coin_type = object::object_address(metadata);
+        let coin_metadata = object::object_address(metadata);
         add_vesting(m, signer::address_of(u), metadata, 200000, 0, 1000, 1000);
         add_vesting(m, signer::address_of(u), metadata, 300000, 1000, 2000, 500);
         add_vesting(m, signer::address_of(u), metadata, 400000, 2000, 3000, 250);
@@ -319,7 +319,7 @@ module launch::vesting {
         assert!(
             schedules == vector[
                 ScheduleResponse {
-                    coin_type,
+                    coin_metadata,
                     initial_amount: 200000,
                     released_amount: 0,
                     start_time: 0,
@@ -327,7 +327,7 @@ module launch::vesting {
                     release_interval: 1000,
                 },
                 ScheduleResponse {
-                    coin_type,
+                    coin_metadata,
                     initial_amount: 300000,
                     released_amount: 0,
                     start_time: 1000,
@@ -335,7 +335,7 @@ module launch::vesting {
                     release_interval: 500,
                 },
                 ScheduleResponse {
-                    coin_type,
+                    coin_metadata,
                     initial_amount: 400000,
                     released_amount: 0,
                     start_time: 2000,
@@ -343,7 +343,7 @@ module launch::vesting {
                     release_interval: 250,
                 },
                 ScheduleResponse {
-                    coin_type,
+                    coin_metadata,
                     initial_amount: 500000,
                     released_amount: 0,
                     start_time: 3000,
