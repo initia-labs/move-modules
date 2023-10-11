@@ -78,32 +78,12 @@ module me::dex_utils {
         min_liquidity: Option<u64>,
         validator: String,
     ) {
-        let pool_info = dex::get_pool_info(pair);
-        let coin_a_amount = dex::get_coin_a_amount_from_pool_info_response(&pool_info);
-        let coin_b_amount = dex::get_coin_b_amount_from_pool_info_response(&pool_info);
-        let total_share = option::extract(&mut fungible_asset::supply(pair));
         let (metadata_a, metadata_b) = dex::pool_metadata(pair);
 
         // calculate the best coin amount
-        let (coin_a, coin_b) = if (total_share == 0) {
-            (
-                coin::withdraw(account, metadata_a, coin_a_amount_in),
-                coin::withdraw(account, metadata_b, coin_b_amount_in),
-            )
-        } else {
-            let uinit_share_ratio = decimal128::from_ratio_u64(coin_a_amount_in, coin_a_amount);
-            let counterpart_share_ratio = decimal128::from_ratio_u64(coin_b_amount_in, coin_b_amount);
-            if (decimal128::val(&uinit_share_ratio) > decimal128::val(&counterpart_share_ratio)) {
-                coin_a_amount_in = decimal128::mul_u64(&counterpart_share_ratio, coin_a_amount);
-            } else {
-                coin_b_amount_in = decimal128::mul_u64(&uinit_share_ratio, coin_b_amount);
-            };
-
-            (
-                coin::withdraw(account, metadata_a, coin_a_amount_in),
-                coin::withdraw(account, metadata_b, coin_b_amount_in),
-            )
-        };
+        let (coin_a_amount_in, coin_b_amount_in) = get_exact_provide_amount(pair, coin_a_amount_in, coin_b_amount_in);
+        let coin_a = coin::withdraw(account, metadata_a, coin_a_amount_in);
+        let coin_b = coin::withdraw(account, metadata_b, coin_b_amount_in);
 
         let liquidity_token = dex::provide_liquidity(
             account,
@@ -151,44 +131,27 @@ module me::dex_utils {
         coin_a_amount_in: u64,
         coin_b_amount_in: u64,
     ): u64 {
-        let pool_info = dex::get_pool_info(pair);
-        let coin_a_amount_in = (coin_a_amount_in as u128);
-        let coin_a_amount = (dex::get_coin_a_amount_from_pool_info_response(&pool_info) as u128);
-        let coin_b_amount_in = (coin_b_amount_in as u128);
-        let coni_b_amount = (dex::get_coin_b_amount_from_pool_info_response(&pool_info) as u128);
+        let (coin_a_amount_in, coin_b_amount_in) = get_exact_provide_amount(pair, coin_a_amount_in, coin_b_amount_in);
         let total_share = option::extract(&mut fungible_asset::supply(pair));
+        let pool_info = dex::get_pool_info(pair);
+        let coin_a_amount = dex::get_coin_a_amount_from_pool_info_response(&pool_info);
+        let coin_b_amount = dex::get_coin_b_amount_from_pool_info_response(&pool_info);
 
-        let (coin_a_amount_in, coin_b_amount_in) = if (total_share == 0) {
-            (
-                coin_a_amount_in,
-                coin_b_amount_in,
-            )
-        } else {
-            let uinit_share_ratio = decimal128::from_ratio(coin_a_amount_in, coin_a_amount);
-            let counterpart_share_ratio = decimal128::from_ratio(coin_b_amount_in, coni_b_amount);
-            if (decimal128::val(&uinit_share_ratio) > decimal128::val(&counterpart_share_ratio)) {
-                coin_a_amount_in = decimal128::mul_u128(&counterpart_share_ratio, coin_a_amount);
-            } else {
-                coin_b_amount_in = decimal128::mul_u128(&uinit_share_ratio, coni_b_amount);
-            };
-            (coin_a_amount_in, coin_b_amount_in)
-        };
-
-        (if (total_share == 0) {
+        if (total_share == 0) {
             if (coin_a_amount_in > coin_b_amount_in) {
                 coin_a_amount_in
             } else {
                 coin_b_amount_in
             }
         } else {
-            let uinit_share_ratio = decimal128::from_ratio(coin_a_amount_in, coin_a_amount);
-            let counterpart_share_ratio = decimal128::from_ratio(coin_b_amount_in, coni_b_amount);
+            let uinit_share_ratio = decimal128::from_ratio_u64(coin_a_amount_in, coin_a_amount);
+            let counterpart_share_ratio = decimal128::from_ratio_u64(coin_b_amount_in, coin_b_amount);
             if (decimal128::val(&uinit_share_ratio) > decimal128::val(&counterpart_share_ratio)) {
-                decimal128::mul_u128(&counterpart_share_ratio, total_share)
+                (decimal128::mul_u128(&counterpart_share_ratio, total_share) as u64)
             } else {
-                decimal128::mul_u128(&uinit_share_ratio, total_share)
+                (decimal128::mul_u128(&uinit_share_ratio, total_share) as u64)
             }
-        } as u64)
+        }
     }
 
     #[view]
@@ -316,6 +279,28 @@ module me::dex_utils {
         }
     }
 
+    fun get_exact_provide_amount(pair: Object<Config>, coin_a_amount_in: u64, coin_b_amount_in : u64): (u64, u64) {
+        let pool_info = dex::get_pool_info(pair);
+        let coin_a_amount = dex::get_coin_a_amount_from_pool_info_response(&pool_info);
+        let coin_b_amount = dex::get_coin_b_amount_from_pool_info_response(&pool_info);
+        let total_share = option::extract(&mut fungible_asset::supply(pair));
+
+        // calculate the best coin amount
+        if (total_share == 0) {
+            (coin_a_amount_in, coin_b_amount_in)
+        } else {
+            let uinit_share_ratio = decimal128::from_ratio_u64(coin_a_amount_in, coin_a_amount);
+            let counterpart_share_ratio = decimal128::from_ratio_u64(coin_b_amount_in, coin_b_amount);
+            if (decimal128::val(&uinit_share_ratio) > decimal128::val(&counterpart_share_ratio)) {
+                coin_a_amount_in = decimal128::mul_u64(&counterpart_share_ratio, coin_a_amount);
+            } else {
+                coin_b_amount_in = decimal128::mul_u64(&uinit_share_ratio, coin_b_amount);
+            };
+
+            (coin_a_amount_in, coin_b_amount_in)
+        }
+    }
+
     fun get_spot_price(base_pool: u64, quote_pool: u64, base_weight: Decimal128, quote_weight: Decimal128): Decimal128 {
         decimal128::from_ratio_u64(
             decimal128::mul_u64(&base_weight, quote_pool), 
@@ -323,9 +308,7 @@ module me::dex_utils {
         )
     }
 
-
-
-        /// a^x = 1 + sigma[(k^n)/n!]
+    /// a^x = 1 + sigma[(k^n)/n!]
     /// k = x * ln(a)
     fun pow(base: &Decimal128, exp: &Decimal128): Decimal128 {
         assert!(
