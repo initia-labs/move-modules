@@ -3,7 +3,6 @@ module launch::vesting {
     use std::error;
     use std::signer;
     use std::vector;
-    use std::string;
     use std::event;
 
     use initia_std::block;
@@ -263,6 +262,9 @@ module launch::vesting {
 
     ///////////////////////////////////////////////////////
     // Test
+
+    #[test_only]
+    use std::string;
 
     #[test_only]
     struct CoinCaps has key {
