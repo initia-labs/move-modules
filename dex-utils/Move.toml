@@ -1,0 +1,11 @@
+[package]
+name = "dex_utils"
+version = "0.0.1"
+
+[addresses]
+std = "0x1"
+initia_std = "0x1"
+me = "0x589b1e861579c3f07092859db5f8963e1dac50f1"
+
+[dependencies]
+InitiaStdlib = { local = "../../../backends/initiavm/precompile/modules/initia_stdlib" }
