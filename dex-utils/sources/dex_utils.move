@@ -87,9 +87,9 @@ module me::dex_utils {
 
         let liquidity_token = dex::provide_liquidity(
             account,
+            pair,
             coin_a,
             coin_b,
-            pair,
             min_liquidity,
         );
 
