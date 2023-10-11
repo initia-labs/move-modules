@@ -252,6 +252,7 @@ module launch::lock_staking {
 
     public entry fun single_asset_provide_lock_stake_script(
         account: &signer,
+        provide_coin_metadata: Object<Metadata>,
         amount_in: u64,
         pair: Object<dex::Config>,
         min_liquidity: Option<u64>,
@@ -260,7 +261,7 @@ module launch::lock_staking {
     ) acquires LSStore, ModuleStore {
         let addr = signer::address_of(account);
         let m_store = borrow_global_mut<ModuleStore>(@launch);
-        let provide_coin = primary_fungible_store::withdraw(account, m_store.bond_coin_metadata, amount_in);
+        let provide_coin = primary_fungible_store::withdraw(account, provide_coin_metadata, amount_in);
 
         let liquidity_token = dex::single_asset_provide_liquidity(
             account,
