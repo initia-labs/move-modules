@@ -11,6 +11,4 @@ launch = "0xfa5f07319724580ef16dcef6ce4d3b0bd0348e48"
 launch = "0x2"
 
 [dependencies]
-InitiaStdlib = { local = "../../../backends/initiavm/precompile/modules/initia_stdlib" }
-MoveStdlib = { local = "../../../backends/initiavm/precompile/modules/move_stdlib" }
-MoveNursery = { local = "../../../backends/initiavm/precompile/modules/move_nursery" }
+InitiaStdlib = { git = "https://github.com/initia-labs/testnet.git", subdir = "stone-11/move/initia_stdlib", rev = "162138c277040eaca8a4d5f7ba4d8ec13ad80a4a"  }
