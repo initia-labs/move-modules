@@ -5,7 +5,10 @@ version = "0.0.1"
 [addresses]
 std = "0x1"
 initia_std = "0x1"
-me = "0x589b1e861579c3f07092859db5f8963e1dac50f1"
+dex_utils = "_"
+
+[dev-addresses]
+dex_utils = "0x3"
 
 [dependencies]
-InitiaStdlib = { local = "../../../backends/initiavm/precompile/modules/initia_stdlib" }
+InitiaStdlib = { git = "https://github.com/initia-labs/testnet.git", subdir = "stone-11/move/initia_stdlib", rev = "d3debed2d4aeb8ba1eb9635f5987e0c08455dc6c" }

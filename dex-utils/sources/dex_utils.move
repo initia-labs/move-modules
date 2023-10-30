@@ -1,4 +1,4 @@
-module me::dex_utils {
+module dex_utils::dex_utils {
     use std::error;
     use std::signer;
     use std::string::{Self, String};
@@ -13,7 +13,7 @@ module me::dex_utils {
     use initia_std::decimal128::{Self, Decimal128};
     use initia_std::dex::{Self, Config};
     use initia_std::object::{Self, Object};
-    use initia_std::fungible_asset::{Self, Metadata};
+    use initia_std::fungible_asset::{Self, FungibleAsset, Metadata};
 
     /// Errors
     
@@ -27,21 +27,31 @@ module me::dex_utils {
         min_return_amount: Option<u64>,
     ) {
         let addr = signer::address_of(account);
-        let index = 0;
-        let len = vector::length(&route);
         let offer_coin = coin::withdraw(account, offer_asset_metadata, amount);
-        while(index < len) {
-            let pair = vector::borrow(&route, index);
-            offer_coin = dex::swap(account, *pair, offer_coin);
-            index = index + 1;
-        };
-        let return_coin = offer_coin; // just for clarity
+
+        let return_coin = route_swap_raw(account, offer_coin, route);
         if (option::is_some(&min_return_amount)) {
             let min_return = option::borrow(&min_return_amount); 
             assert!(fungible_asset::amount(&return_coin) >= *min_return, error::invalid_state(EMIN_RETURN));
         };
 
         coin::deposit(addr, return_coin);
+    }
+
+    public fun route_swap_raw(
+        account: &signer,
+        offer_coin: FungibleAsset,
+        route: vector<Object<Config>>, // path of pair
+    ): FungibleAsset {
+        let index = 0;
+        let len = vector::length(&route);
+        while(index < len) {
+            let pair = vector::borrow(&route, index);
+            offer_coin = dex::swap(account, *pair, offer_coin);
+            index = index + 1;
+        };
+        let return_coin = offer_coin; // just for clarity
+        return_coin
     }
 
     #[view]
