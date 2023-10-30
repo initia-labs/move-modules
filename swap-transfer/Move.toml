@@ -1,0 +1,17 @@
+[package]
+name = "swap-transfer"
+version = "0.0.1"
+
+[addresses]
+std = "0x1"
+initia_std = "0x1"
+swap_transfer = "_"
+dex_utils = "_"
+
+[dev-addresses]
+swap_transfer = "0x2"
+dex_utils = "0x3"
+
+[dependencies]
+InitiaStdlib = { git = "https://github.com/initia-labs/testnet.git", subdir = "stone-11/move/initia_stdlib", rev = "d3debed2d4aeb8ba1eb9635f5987e0c08455dc6c" }
+dex_utils = { local = "../dex-utils" }
