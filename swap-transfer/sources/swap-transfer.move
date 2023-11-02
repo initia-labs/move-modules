@@ -41,13 +41,13 @@ module swap_transfer::swap_transfer {
         };
 
         let amount = fungible_asset::amount(&return_coin);
-
+        let return_coin_metadata = fungible_asset::metadata_from_asset(&return_coin);
         primary_fungible_store::deposit(addr, return_coin);
 
         cosmos::transfer(
             account,
             receiver,
-            offer_coin_metadata,
+            return_coin_metadata,
             amount,
             source_port,
             source_channel,
@@ -81,13 +81,13 @@ module swap_transfer::swap_transfer {
         };
 
         let amount = fungible_asset::amount(&return_coin);
-
+        let return_coin_metadata = fungible_asset::metadata_from_asset(&return_coin);
         primary_fungible_store::deposit(addr, return_coin);
 
         cosmos::transfer(
             account,
             receiver,
-            offer_coin_metadata,
+            return_coin_metadata,
             amount,
             source_port,
             source_channel,
