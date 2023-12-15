@@ -11,4 +11,4 @@ dex_utils = "_"
 dex_utils = "0x3"
 
 [dependencies]
-InitiaStdlib = { git = "https://github.com/initia-labs/testnet.git", subdir = "stone-11/move/initia_stdlib", rev = "d3debed2d4aeb8ba1eb9635f5987e0c08455dc6c" }
+InitiaStdlib = { local = "../../../backends/initiavm/precompile/modules/initia_stdlib" }

@@ -39,7 +39,7 @@ module dex_utils::dex_utils {
     }
 
     public fun route_swap_raw(
-        account: &signer,
+        _account: &signer,
         offer_coin: FungibleAsset,
         route: vector<Object<Config>>, // path of pair
     ): FungibleAsset {
@@ -47,7 +47,7 @@ module dex_utils::dex_utils {
         let len = vector::length(&route);
         while(index < len) {
             let pair = vector::borrow(&route, index);
-            offer_coin = dex::swap(account, *pair, offer_coin);
+            offer_coin = dex::swap(*pair, offer_coin);
             index = index + 1;
         };
         let return_coin = offer_coin; // just for clarity
@@ -96,7 +96,6 @@ module dex_utils::dex_utils {
         let coin_b = coin::withdraw(account, metadata_b, coin_b_amount_in);
 
         let liquidity_token = dex::provide_liquidity(
-            account,
             pair,
             coin_a,
             coin_b,
@@ -122,7 +121,6 @@ module dex_utils::dex_utils {
         let provide_coin = coin::withdraw(account, offer_asset_metadata, amount_in);
 
         let liquidity_token = dex::single_asset_provide_liquidity(
-            account,
             pair,
             provide_coin,
             min_liquidity,
