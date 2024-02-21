@@ -5,7 +5,7 @@ version = "0.0.1"
 [addresses]
 std = "0x1"
 initia_std = "0x1"
-dex_utils = "_"
+dex_utils = "0x589B1E861579C3F07092859DB5F8963E1DAC50F1"
 
 [dev-addresses]
 dex_utils = "0x3"

@@ -5,13 +5,10 @@ version = "0.0.1"
 [addresses]
 std = "0x1"
 initia_std = "0x1"
-swap_transfer = "_"
-dex_utils = "_"
-
-[dev-addresses]
-swap_transfer = "0x2"
-dex_utils = "0x3"
+swap_transfer = "0xfa5f07319724580ef16dcef6ce4d3b0bd0348e48"
+dex_utils = "0x589b1e861579c3f07092859db5f8963e1dac50f1"
+me ="0xfa5f07319724580ef16dcef6ce4d3b0bd0348e48"
 
 [dependencies]
-InitiaStdlib = { git = "https://github.com/initia-labs/testnet.git", subdir = "stone-11/move/initia_stdlib", rev = "d3debed2d4aeb8ba1eb9635f5987e0c08455dc6c" }
+InitiaStdlib = { local = "../../../backends/initiavm/precompile/modules/initia_stdlib" }
 dex_utils = { local = "../dex-utils" }
