@@ -847,7 +847,7 @@ module me::minit_swap {
             x_prev = x;
             // x = z * (x' - y') / (g * (x'- z) - (y' - z))
             // x = z * (y' - x') / (g * (z - x') + (y' - z))
-            let temp_x = pool_size * (y - x) * denominator / (grad_val * (pool_size - x) + (y - pool_size) * denominator);
+            let temp_x = pool_size * (y - x) / (grad_val * (pool_size - x) / denominator + (y - pool_size));
             let y = decimal128::mul_u128(&grad, temp_x);
             x = (get_y(d0, (y as u64), amplifier) as u128);
 
@@ -889,101 +889,122 @@ module me::minit_swap {
         }
     }
 
-    #[test_only]
-    use std::string::String;
+    // #[test_only]
+    // use std::string::String;
 
-    #[test_only]
-    fun initialized_coin(
-        account: &signer,
-        symbol: String,
-    ): (coin::BurnCapability, coin::FreezeCapability, coin::MintCapability) {
-        let (mint_cap, burn_cap, freeze_cap, _) = coin::initialize_and_generate_extend_ref (
-            account,
-            option::none(),
-            string::utf8(b""),
-            symbol,
-            6,
-            string::utf8(b""),
-            string::utf8(b""),
-        );
+    // #[test_only]
+    // fun initialized_coin(
+    //     account: &signer,
+    //     symbol: String,
+    // ): (coin::BurnCapability, coin::FreezeCapability, coin::MintCapability) {
+    //     let (mint_cap, burn_cap, freeze_cap, _) = coin::initialize_and_generate_extend_ref (
+    //         account,
+    //         option::none(),
+    //         string::utf8(b""),
+    //         symbol,
+    //         6,
+    //         string::utf8(b""),
+    //         string::utf8(b""),
+    //     );
 
-        return (burn_cap, freeze_cap, mint_cap)
-    }
+    //     return (burn_cap, freeze_cap, mint_cap)
+    // }
 
-    #[test_only]
-    fun print_state(l2_meatdata: Object<Metadata>) acquires ModuleStore, VirtualPool {
-        let (module_store, pool, _, _) = borrow_all(l2_meatdata);
-        std::debug::print(module_store);
-        std::debug::print(pool);
-    }
+    // #[test_only]
+    // fun print_state(l2_meatdata: Object<Metadata>) acquires ModuleStore, VirtualPool {
+    //     let (module_store, pool, _, _) = borrow_all(l2_meatdata);
+    //     std::debug::print(module_store);
+    //     std::debug::print(pool);
+    // }
 
-    #[test(chain = @0x1)]
-    fun end_to_end(
-        chain: signer,
-    ) acquires ModuleStore, VirtualPool {
-        initia_std::primary_fungible_store::init_module_for_test(&chain);
-        init_module(&chain);
-        block::set_block_info(0, 100);
+    // #[test(chain = @0x1)]
+    // fun end_to_end(
+    //     chain: signer,
+    // ) acquires ModuleStore, VirtualPool {
+    //     initia_std::primary_fungible_store::init_module_for_test(&chain);
+    //     init_module(&chain);
+    //     block::set_block_info(0, 100);
 
-        let chain_addr = signer::address_of(&chain);
+    //     let chain_addr = signer::address_of(&chain);
 
-        let (_, _, initia_mint_cap) = initialized_coin(&chain, string::utf8(b"uinit"));
-        let (_, _, l2_1_mint_cap) = initialized_coin(&chain, string::utf8(b"L2 1"));
-        let (_, _, l2_2_mint_cap) = initialized_coin(&chain, string::utf8(b"L2 2"));
-        let init_metadata = coin::metadata(chain_addr, string::utf8(b"uinit"));
-        let l2_1_metadata = coin::metadata(chain_addr, string::utf8(b"L2 1"));
-        let l2_2_metadata = coin::metadata(chain_addr, string::utf8(b"L2 2"));
+    //     let (_, _, initia_mint_cap) = initialized_coin(&chain, string::utf8(b"uinit"));
+    //     let (_, _, l2_1_mint_cap) = initialized_coin(&chain, string::utf8(b"L2 1"));
+    //     let (_, _, l2_2_mint_cap) = initialized_coin(&chain, string::utf8(b"L2 2"));
+    //     let init_metadata = coin::metadata(chain_addr, string::utf8(b"uinit"));
+    //     let l2_1_metadata = coin::metadata(chain_addr, string::utf8(b"L2 1"));
+    //     let l2_2_metadata = coin::metadata(chain_addr, string::utf8(b"L2 2"));
         
-        coin::mint_to(&initia_mint_cap, chain_addr, 100000000);
-        coin::mint_to(&l2_1_mint_cap, chain_addr, 1000000000);
-        coin::mint_to(&l2_2_mint_cap, chain_addr, 1000000000);
-        provide(&chain, 15000000, option::none());
+    //     coin::mint_to(&initia_mint_cap, chain_addr, 100000000);
+    //     coin::mint_to(&l2_1_mint_cap, chain_addr, 1000000000);
+    //     coin::mint_to(&l2_2_mint_cap, chain_addr, 1000000000);
+    //     provide(&chain, 15000000, option::none());
         
 
-        create_pool(
-            &chain,
-            l2_1_metadata,
-            decimal128::from_ratio(100000, 1),
-            10000000,
-            3000,
-            decimal128::from_ratio(7, 10),
-            decimal128::from_ratio(2, 1),
+    //     create_pool(
+    //         &chain,
+    //         l2_1_metadata,
+    //         decimal128::from_ratio(100000, 1),
+    //         10000000,
+    //         3000,
+    //         decimal128::from_ratio(7, 10),
+    //         decimal128::from_ratio(2, 1),
+    //     );
+
+    //     create_pool(
+    //         &chain,
+    //         l2_2_metadata,
+    //         decimal128::from_ratio(100000, 1),
+    //         10000000,
+    //         3000,
+    //         decimal128::from_ratio(7, 10),
+    //         decimal128::from_ratio(2, 1),
+    //     );
+
+    //     // print_state(l2_1_metadata);
+
+    //     swap(&chain, l2_1_metadata, init_metadata, 1000000, option::none());
+    //     // print_state(l2_1_metadata);
+
+    //     block::set_block_info(0, 101);
+
+    //     swap(&chain, l2_1_metadata, init_metadata, 1000000, option::none());
+    //     // print_state(l2_1_metadata);
+
+    //     swap(&chain, l2_1_metadata, init_metadata, 100000000, option::none());
+    //     // print_state(l2_1_metadata);
+
+    //     block::set_block_info(0, 121);
+    //     swap(&chain, l2_1_metadata, init_metadata, 100, option::none());
+    //     // print_state(l2_1_metadata);
+
+    //     block::set_block_info(0, 141);
+    //     swap(&chain, l2_1_metadata, init_metadata, 100, option::none());
+    //     swap(&chain, init_metadata, l2_1_metadata, 10000, option::none());
+    //     print_state(l2_1_metadata);
+    //     rebalance(&chain, l2_1_metadata, 4100000, option::none());
+    //     print_state(l2_1_metadata);
+    //     change_pool_size(&chain, l2_1_metadata, 9000000);
+    //     print_state(l2_1_metadata);
+    // }
+
+    #[test]
+    fun test() {
+        let (_, l2_pool_amount) = (82170777908, 117856383548);
+        let pool_size = 100000000000;
+        // let last_recovered_timestamp = 1707976292;
+        // let timestamp = 1710236309;
+        let ann = 6000;
+        let max_ratio = decimal128::from_ratio_u64(7, 10);
+        let recover_param = decimal128::from_ratio_u64(5, 2);
+        // let recover_velocity = decimal128::from_ratio_u64(100000000, 1);
+        let imbalance = decimal128::from_ratio_u64(
+            19120616452 + l2_pool_amount - pool_size, // same with real l2 balance
+            pool_size,
         );
-
-        create_pool(
-            &chain,
-            l2_2_metadata,
-            decimal128::from_ratio(100000, 1),
-            10000000,
-            3000,
-            decimal128::from_ratio(7, 10),
-            decimal128::from_ratio(2, 1),
-        );
-
-        // print_state(l2_1_metadata);
-
-        swap(&chain, l2_1_metadata, init_metadata, 1000000, option::none());
-        // print_state(l2_1_metadata);
-
-        block::set_block_info(0, 101);
-
-        swap(&chain, l2_1_metadata, init_metadata, 1000000, option::none());
-        // print_state(l2_1_metadata);
-
-        swap(&chain, l2_1_metadata, init_metadata, 100000000, option::none());
-        // print_state(l2_1_metadata);
-
-        block::set_block_info(0, 121);
-        swap(&chain, l2_1_metadata, init_metadata, 100, option::none());
-        // print_state(l2_1_metadata);
-
-        block::set_block_info(0, 141);
-        swap(&chain, l2_1_metadata, init_metadata, 100, option::none());
-        swap(&chain, init_metadata, l2_1_metadata, 10000, option::none());
-        print_state(l2_1_metadata);
-        rebalance(&chain, l2_1_metadata, 4100000, option::none());
-        print_state(l2_1_metadata);
-        change_pool_size(&chain, l2_1_metadata, 9000000);
-        print_state(l2_1_metadata);
+        // Peg keeper swap
+        let r_fr = get_fully_recovered_ratio(&imbalance, &max_ratio, &recover_param);
+        // let current_ratio = decimal128::from_ratio_u64(l2_pool_amount, l1_pool_amount + l2_pool_amount);
+        // let time_diff = timestamp - last_recovered_timestamp;
+        get_fully_recovered_pool_amounts(pool_size, &r_fr, ann);
     }
 }
