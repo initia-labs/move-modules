@@ -10,5 +10,5 @@ dex_utils = "0x589b1e861579c3f07092859db5f8963e1dac50f1"
 me ="0xfa5f07319724580ef16dcef6ce4d3b0bd0348e48"
 
 [dependencies]
-InitiaStdlib = { local = "../../../backends/initiavm/precompile/modules/initia_stdlib" }
+InitiaStdlib = { git = "https://github.com/initia-labs/movevm.git", subdir = "precompile/modules/initia_stdlib", rev = "47297f0e4fa0e259d509daafc09a9790da1e95fe" }
 dex_utils = { local = "../dex-utils" }

@@ -5,7 +5,7 @@ version = "0.0.1"
 [addresses]
 std = "0x1"
 initia_std = "0x1"
-launch = "_"
+launch = "0x7DE0DE4F4A289EC455F0EB4A496DFA3DBAE3A375"
 
 [dev-addresses]
 launch = "0x2"
