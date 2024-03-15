@@ -1,13 +1,10 @@
 module dex_utils::dex_utils {
     use std::error;
     use std::signer;
-    use std::string::{Self, String};
-    use std::type_info::type_name;
+    use std::string::String;
     use std::option::{Self, Option};
-    use std::hash;
     use std::vector;
 
-    use initia_std::block::get_block_info;
     use initia_std::coin;
     use initia_std::cosmos;
     use initia_std::decimal128::{Self, Decimal128};
@@ -130,7 +127,7 @@ module dex_utils::dex_utils {
 
         coin::deposit(addr, liquidity_token);
 
-         cosmos::delegate(account, validator, object::convert<Config, Metadata>(pair), provide_amount);
+        cosmos::delegate(account, validator, object::convert<Config, Metadata>(pair), provide_amount);
     }
 
     #[view]
@@ -199,8 +196,6 @@ module dex_utils::dex_utils {
         };
         let price_after = get_spot_price(coin_a_amount, coin_b_amount, coin_a_weight, coin_b_weight);
 
-        // assert!(pool_amount_in > amount_in, error::invalid_argument(111));
-
         // compute fee amount with the assumption that we will swap (1 - normalized_weight) of amount_in
         let adjusted_swap_amount = decimal128::mul_u128(
             &decimal128::sub(&decimal128::one(), &normalized_weight),
@@ -215,8 +210,7 @@ module dex_utils::dex_utils {
         let base = decimal128::from_ratio((adjusted_amount_in + (pool_amount_in as u64) as u128), (pool_amount_in as u128));
         let pool_ratio = pow(&base, &normalized_weight);
         let new_total_share = decimal128::mul_u128(&pool_ratio, total_share);
-        // get_price_impact(price_before, price_after);
-        // (new_total_share - total_share as u64)
+
         ((new_total_share - total_share as u64), get_price_impact(price_before, price_after))
     }
 
@@ -247,44 +241,6 @@ module dex_utils::dex_utils {
         let price_after = get_spot_price(offer_pool + offer_amount, return_pool - return_amount, offer_weight, return_weight);
 
         (return_amount, get_price_impact(price_before, price_after))
-    }
-
-    fun get_weight(config: &dex::ConfigResponse): (Decimal128, Decimal128) {
-        let (_, timestamp) = get_block_info();
-
-        let weights_after = dex::get_weight_after_from_config_response(config);
-        let weights_after_timestamp = dex::get_timestamp_from_weight(&weights_after);
-        let weights_after_uinit_weight = dex::get_coin_a_weight_from_weight(&weights_after);
-        let weights_after_counterpart_weight = dex::get_coin_b_weight_from_weight(&weights_after);
-        let weights_before = dex::get_weight_before_from_config_response(config);
-        let weights_before_timestamp = dex::get_timestamp_from_weight(&weights_before);
-        let weights_before_uinit_weight = dex::get_coin_a_weight_from_weight(&weights_before);
-        let weights_before_counterpart_weight = dex::get_coin_b_weight_from_weight(&weights_before);
-        
-        if (timestamp < weights_after_timestamp) {
-            let interval = (weights_after_timestamp - weights_before_timestamp as u128);
-            let time_diff_after = (weights_after_timestamp - timestamp as u128);
-            let time_diff_before = (timestamp - weights_before_timestamp as u128);
-
-            // when timestamp_before < timestamp < timestamp_after
-            // weight = a * timestamp + b
-            // m = (a * timestamp_before + b) * (timestamp_after - timestamp) 
-            //   = a * t_b * t_a - a * t_b * t + b * t_a - b * t
-            // n = (a * timestamp_after + b) * (timestamp - timestamp_before)
-            //   = a * t_a * t - a * t_a * t_b + b * t - b * t_b
-            // l = m + n = a * t * (t_a - t_b) + b * (t_a - t_b)
-            // weight = l / (t_a - t_b)
-            let uinit_m = decimal128::new(decimal128::val(&weights_after_uinit_weight) * time_diff_before);
-            let uinit_n = decimal128::new(decimal128::val(&weights_before_uinit_weight) * time_diff_after);
-            let uinit_l = decimal128::add(&uinit_m, &uinit_n);
-
-            let counterpart_m = decimal128::new(decimal128::val(&weights_after_counterpart_weight) * time_diff_before);
-            let counterpart_n = decimal128::new(decimal128::val(&weights_before_counterpart_weight) * time_diff_after);
-            let counterpart_l = decimal128::add(&counterpart_m, &counterpart_n);
-            (decimal128::div(&uinit_l, interval), decimal128::div(&counterpart_l, interval))
-        } else {
-            (weights_after_uinit_weight, weights_after_counterpart_weight)
-        }
     }
 
     fun get_exact_provide_amount(pair: Object<Config>, coin_a_amount_in: u64, coin_b_amount_in : u64): (u64, u64) {
@@ -388,38 +344,6 @@ module dex_utils::dex_utils {
         let one = decimal128::val(&decimal128::one());
         let val_mul = decimal128::val(decimal_0) * decimal128::val(decimal_1);
         decimal128::new(val_mul / one)
-    }
-
-    fun struct_tag_to_denom<StructTag>(): String {
-        let tag = type_name<StructTag>();
-        let denom = b"move/";
-        let hash = hash_to_utf8(hash::sha2_256(*string::bytes(&tag)));
-        vector::append(&mut denom, hash);
-        string::utf8(denom)
-    }
-
-    fun hash_to_utf8(hash: vector<u8>): vector<u8> {
-        let vec: vector<u8> = vector[];
-        let len = vector::length(&hash);
-        let index = 0;
-        while(index < len) {
-            let val = *vector::borrow(&hash, index);
-            let h = val / 0x10;
-            let l = val % 0x10;
-            vector::push_back(&mut vec, hex_num_to_utf8(h));
-            vector::push_back(&mut vec, hex_num_to_utf8(l));
-            index = index + 1;
-        };
-
-        vec
-    }
-
-    fun hex_num_to_utf8(num: u8): u8 {
-        if (num < 10) {
-            0x30 + num
-        } else {
-            0x57 + num
-        }
     }
 
     fun get_price_impact(price_before: Decimal128, price_after: Decimal128): Decimal128 {

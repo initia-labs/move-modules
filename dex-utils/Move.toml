@@ -7,8 +7,5 @@ std = "0x1"
 initia_std = "0x1"
 dex_utils = "0x589B1E861579C3F07092859DB5F8963E1DAC50F1"
 
-[dev-addresses]
-dex_utils = "0x3"
-
 [dependencies]
-InitiaStdlib = { local = "../../../backends/initiavm/precompile/modules/initia_stdlib" }
+InitiaStdlib = { git = "https://github.com/initia-labs/movevm.git", subdir = "precompile/modules/initia_stdlib", rev = "47297f0e4fa0e259d509daafc09a9790da1e95fe" }
