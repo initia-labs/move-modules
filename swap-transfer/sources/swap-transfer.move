@@ -111,7 +111,7 @@ module swap_transfer::swap_transfer {
         memo: String,
     ) {
         let offer_asset = primary_fungible_store::withdraw(account, offer_asset_metadata, offer_asset_amount);
-        let return_asset = dex_utils::route_swap_raw(account, offer_asset, route);
+        let return_asset = dex_utils::route_swap_raw(offer_asset, route);
         assert_min_amount(min_return_amount, &return_asset);
 
         transfer_fa(account, return_asset, receiver, source_port, source_channel, memo);

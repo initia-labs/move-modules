@@ -16,40 +16,7 @@ module dex_utils::dex_utils {
     
     const EMIN_RETURN: u64 = 1;
 
-    public entry fun route_swap(
-        account: &signer,
-        offer_asset_metadata: Object<Metadata>,
-        route: vector<Object<Config>>, // path of pair
-        amount: u64,
-        min_return_amount: Option<u64>,
-    ) {
-        let addr = signer::address_of(account);
-        let offer_coin = coin::withdraw(account, offer_asset_metadata, amount);
-
-        let return_coin = route_swap_raw(account, offer_coin, route);
-        if (option::is_some(&min_return_amount)) {
-            let min_return = option::borrow(&min_return_amount); 
-            assert!(fungible_asset::amount(&return_coin) >= *min_return, error::invalid_state(EMIN_RETURN));
-        };
-
-        coin::deposit(addr, return_coin);
-    }
-
-    public fun route_swap_raw(
-        _account: &signer,
-        offer_coin: FungibleAsset,
-        route: vector<Object<Config>>, // path of pair
-    ): FungibleAsset {
-        let index = 0;
-        let len = vector::length(&route);
-        while(index < len) {
-            let pair = vector::borrow(&route, index);
-            offer_coin = dex::swap(*pair, offer_coin);
-            index = index + 1;
-        };
-        let return_coin = offer_coin; // just for clarity
-        return_coin
-    }
+    // view functions. Simulate and calculate price impact
 
     #[view]
     public fun get_route_swap_simulation(
@@ -75,59 +42,6 @@ module dex_utils::dex_utils {
         };
         let return_amount =  offer_amount;
         (return_amount, price_impacts)
-    }
-
-    public entry fun provide_stake(
-        account: &signer,
-        pair: Object<Config>,
-        coin_a_amount_in: u64,
-        coin_b_amount_in: u64,
-        min_liquidity: Option<u64>,
-        validator: String,
-    ) {
-        let (metadata_a, metadata_b) = dex::pool_metadata(pair);
-
-        // calculate the best coin amount
-        let (coin_a_amount_in, coin_b_amount_in) = get_exact_provide_amount(pair, coin_a_amount_in, coin_b_amount_in);
-        let coin_a = coin::withdraw(account, metadata_a, coin_a_amount_in);
-        let coin_b = coin::withdraw(account, metadata_b, coin_b_amount_in);
-
-        let liquidity_token = dex::provide_liquidity(
-            pair,
-            coin_a,
-            coin_b,
-            min_liquidity,
-        );
-
-        let provide_amount = fungible_asset::amount(&liquidity_token);
-
-        coin::deposit(signer::address_of(account), liquidity_token);
-
-        cosmos::delegate(account, validator, object::convert<Config, Metadata>(pair), provide_amount);
-    }
-
-    public entry fun single_asset_provide_stake(
-        account: &signer,
-        pair: Object<Config>,
-        offer_asset_metadata: Object<Metadata>,
-        amount_in: u64,
-        min_liquidity: Option<u64>,
-        validator: String,
-    ) {
-        let addr = signer::address_of(account);
-        let provide_coin = coin::withdraw(account, offer_asset_metadata, amount_in);
-
-        let liquidity_token = dex::single_asset_provide_liquidity(
-            pair,
-            provide_coin,
-            min_liquidity,
-        );
-
-        let provide_amount = fungible_asset::amount(&liquidity_token);
-
-        coin::deposit(addr, liquidity_token);
-
-        cosmos::delegate(account, validator, object::convert<Config, Metadata>(pair), provide_amount);
     }
 
     #[view]
@@ -242,6 +156,99 @@ module dex_utils::dex_utils {
 
         (return_amount, get_price_impact(price_before, price_after))
     }
+
+    // entry functions
+
+    public entry fun provide_stake(
+        account: &signer,
+        pair: Object<Config>,
+        coin_a_amount_in: u64,
+        coin_b_amount_in: u64,
+        min_liquidity: Option<u64>,
+        validator: String,
+    ) {
+        let (metadata_a, metadata_b) = dex::pool_metadata(pair);
+
+        // calculate the best coin amount
+        let (coin_a_amount_in, coin_b_amount_in) = get_exact_provide_amount(pair, coin_a_amount_in, coin_b_amount_in);
+        let coin_a = coin::withdraw(account, metadata_a, coin_a_amount_in);
+        let coin_b = coin::withdraw(account, metadata_b, coin_b_amount_in);
+
+        let liquidity_token = dex::provide_liquidity(
+            pair,
+            coin_a,
+            coin_b,
+            min_liquidity,
+        );
+
+        let provide_amount = fungible_asset::amount(&liquidity_token);
+
+        coin::deposit(signer::address_of(account), liquidity_token);
+
+        cosmos::delegate(account, validator, object::convert<Config, Metadata>(pair), provide_amount);
+    }
+
+    public entry fun single_asset_provide_stake(
+        account: &signer,
+        pair: Object<Config>,
+        offer_asset_metadata: Object<Metadata>,
+        amount_in: u64,
+        min_liquidity: Option<u64>,
+        validator: String,
+    ) {
+        let addr = signer::address_of(account);
+        let provide_coin = coin::withdraw(account, offer_asset_metadata, amount_in);
+
+        let liquidity_token = dex::single_asset_provide_liquidity(
+            pair,
+            provide_coin,
+            min_liquidity,
+        );
+
+        let provide_amount = fungible_asset::amount(&liquidity_token);
+
+        coin::deposit(addr, liquidity_token);
+
+        cosmos::delegate(account, validator, object::convert<Config, Metadata>(pair), provide_amount);
+    }
+
+    public entry fun route_swap(
+        account: &signer,
+        offer_asset_metadata: Object<Metadata>,
+        route: vector<Object<Config>>, // path of pair
+        amount: u64,
+        min_return_amount: Option<u64>,
+    ) {
+        let addr = signer::address_of(account);
+        let offer_coin = coin::withdraw(account, offer_asset_metadata, amount);
+
+        let return_coin = route_swap_raw(offer_coin, route);
+        if (option::is_some(&min_return_amount)) {
+            let min_return = option::borrow(&min_return_amount); 
+            assert!(fungible_asset::amount(&return_coin) >= *min_return, error::invalid_state(EMIN_RETURN));
+        };
+
+        coin::deposit(addr, return_coin);
+    }
+
+    // public functions
+
+    public fun route_swap_raw(
+        offer_coin: FungibleAsset,
+        route: vector<Object<Config>>, // path of pair
+    ): FungibleAsset {
+        let index = 0;
+        let len = vector::length(&route);
+        while(index < len) {
+            let pair = vector::borrow(&route, index);
+            offer_coin = dex::swap(*pair, offer_coin);
+            index = index + 1;
+        };
+        let return_coin = offer_coin; // just for clarity
+        return_coin
+    }
+
+    // util functions
 
     fun get_exact_provide_amount(pair: Object<Config>, coin_a_amount_in: u64, coin_b_amount_in : u64): (u64, u64) {
         let pool_info = dex::get_pool_info(pair);
