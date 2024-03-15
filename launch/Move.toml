@@ -7,8 +7,5 @@ std = "0x1"
 initia_std = "0x1"
 launch = "0x7DE0DE4F4A289EC455F0EB4A496DFA3DBAE3A375"
 
-[dev-addresses]
-launch = "0x2"
-
 [dependencies]
-InitiaStdlib = { git = "https://github.com/initia-labs/testnet.git", subdir = "stone-11/move/initia_stdlib", rev = "d3debed2d4aeb8ba1eb9635f5987e0c08455dc6c" }
+InitiaStdlib = { git = "https://github.com/initia-labs/movevm.git", subdir = "precompile/modules/initia_stdlib", rev = "47297f0e4fa0e259d509daafc09a9790da1e95fe" }

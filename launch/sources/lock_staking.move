@@ -102,7 +102,7 @@ module launch::lock_staking {
     }
 
     public entry fun initialize(m: &signer, bond_coin_metadata: Object<Metadata>, reward_coin_metadata: Object<Metadata>, lock_periods: vector<u64>, reward_weights: vector<u64>) {
-        let reward_constructor_ref = object::create_object(@initia_std);
+        let reward_constructor_ref = object::create_object(@initia_std, false);
         let reward_store_extend_ref = object::generate_extend_ref(&reward_constructor_ref);
 
         move_to(m, ModuleStore {
@@ -263,7 +263,6 @@ module launch::lock_staking {
         let provide_coin = primary_fungible_store::withdraw(account, provide_coin_metadata, amount_in);
 
         let liquidity_token = dex::single_asset_provide_liquidity(
-            account,
             pair,
             provide_coin,
             min_liquidity,
