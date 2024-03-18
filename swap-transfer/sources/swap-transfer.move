@@ -10,15 +10,16 @@ module swap_transfer::swap_transfer {
     use initia_std::base64;
     use initia_std::block;
     use initia_std::coin;
-    use initia_std::fungible_asset::{Self, FungibleAsset, Metadata};
-    use initia_std::primary_fungible_store;
     use initia_std::cosmos;
     use initia_std::dex::{Self, Config};
-    use initia_std::object::{Self, Object};
-    use initia_std::minitswap;
+    use initia_std::fungible_asset::{Self, FungibleAsset, Metadata};
     use initia_std::from_bcs;
     use initia_std::json;
+    use initia_std::minitswap;
+    use initia_std::object::{Self, Object};
+    use initia_std::primary_fungible_store;
     use initia_std::simple_json;
+    use initia_std::string_utils::to_string;
 
     use dex_utils::dex_utils;
 
@@ -229,13 +230,13 @@ module swap_transfer::swap_transfer {
         simple_json::increase_depth(&mut obj);
         simple_json::set_string(&mut obj, option::some(string::utf8(b"@type")), string::utf8(b"/opinit.ophost.v1.MsgInitiateTokenDeposit"));
         simple_json::set_string(&mut obj, option::some(string::utf8(b"sender")), to_sdk(signer::address_of(sender)));
-        simple_json::set_int_raw(&mut obj, option::some(string::utf8(b"bridge_id")), true, (bridge_id as u256));
+        simple_json::set_string(&mut obj, option::some(string::utf8(b"bridge_id")), to_string(&bridge_id));
         simple_json::set_string(&mut obj, option::some(string::utf8(b"to")), to_sdk(to));
         simple_json::set_string(&mut obj, option::some(string::utf8(b"data")), base64::to_string(data));
         simple_json::set_object(&mut obj, option::some(string::utf8(b"amount")));
         simple_json::increase_depth(&mut obj);
         simple_json::set_string(&mut obj, option::some(string::utf8(b"denom")), coin::metadata_to_denom(metadata));
-        simple_json::set_int_raw(&mut obj, option::some(string::utf8(b"amount")), true, (amount as u256));
+        simple_json::set_string(&mut obj, option::some(string::utf8(b"amount")), to_string(&amount));
 
         let req = json::stringify(simple_json::to_json_object(&obj));
         cosmos::stargate(sender, req);
