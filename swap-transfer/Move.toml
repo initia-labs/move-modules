@@ -5,9 +5,8 @@ version = "0.0.1"
 [addresses]
 std = "0x1"
 initia_std = "0x1"
-swap_transfer = "0xfa5f07319724580ef16dcef6ce4d3b0bd0348e48"
-dex_utils = "0x589b1e861579c3f07092859db5f8963e1dac50f1"
-me ="0xfa5f07319724580ef16dcef6ce4d3b0bd0348e48"
+swap_transfer = "0x42cd8467b1c86e59bf319e5664a09b6b5840bb3fac64f5ce690b5041c530565a"
+dex_utils = "0x42cd8467b1c86e59bf319e5664a09b6b5840bb3fac64f5ce690b5041c530565a"
 
 [dependencies]
 InitiaStdlib = { git = "https://github.com/initia-labs/movevm.git", subdir = "precompile/modules/initia_stdlib", rev = "47297f0e4fa0e259d509daafc09a9790da1e95fe" }
