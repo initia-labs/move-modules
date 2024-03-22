@@ -20,7 +20,7 @@ module launch::coin_wrapper {
     }
 
     fun init_module(l: &signer) {
-        let constructor_ref = object::create_object(@initia_std);
+        let constructor_ref = object::create_object(@initia_std, false);
         let extend_ref = object::generate_extend_ref(&constructor_ref);
         move_to(l, ModuleStore { extend_ref });
     }

@@ -102,7 +102,7 @@ module launch::lock_staking {
     }
 
     public entry fun initialize(m: &signer, bond_coin_metadata: Object<Metadata>, reward_coin_metadata: Object<Metadata>, lock_periods: vector<u64>, reward_weights: vector<u64>) {
-        let reward_constructor_ref = object::create_object(@initia_std);
+        let reward_constructor_ref = object::create_object(@initia_std, false);
         let reward_store_extend_ref = object::generate_extend_ref(&reward_constructor_ref);
 
         move_to(m, ModuleStore {
@@ -232,18 +232,18 @@ module launch::lock_staking {
 
     public entry fun provide_lock_stake_script(
         account: &signer,
+        pair: Object<dex::Config>,
         coin_a_amount_in: u64,
         coin_b_amount_in: u64,
-        pair: Object<dex::Config>,
         min_liquidity: Option<u64>,
         validator: String,
         lock_type: u64,
     ) acquires LSStore, ModuleStore {
         let (_, _, liquidity_amount) = dex::provide_liquidity_from_coin_store(
             account,
+            pair,
             coin_a_amount_in,
             coin_b_amount_in,
-            pair,
             min_liquidity,
         );
 
@@ -252,18 +252,17 @@ module launch::lock_staking {
 
     public entry fun single_asset_provide_lock_stake_script(
         account: &signer,
-        amount_in: u64,
         pair: Object<dex::Config>,
+        provide_coin_metadata: Object<Metadata>,
+        amount_in: u64,
         min_liquidity: Option<u64>,
         validator: String,
         lock_type: u64,
     ) acquires LSStore, ModuleStore {
         let addr = signer::address_of(account);
-        let m_store = borrow_global_mut<ModuleStore>(@launch);
-        let provide_coin = primary_fungible_store::withdraw(account, m_store.bond_coin_metadata, amount_in);
+        let provide_coin = primary_fungible_store::withdraw(account, provide_coin_metadata, amount_in);
 
         let liquidity_token = dex::single_asset_provide_liquidity(
-            account,
             pair,
             provide_coin,
             min_liquidity,
