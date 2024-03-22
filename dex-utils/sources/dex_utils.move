@@ -16,6 +16,8 @@ module dex_utils::dex_utils {
     
     const EMIN_RETURN: u64 = 1;
 
+    const EINVALID_TOKEN: u64 = 2;
+
     // view functions. Simulate and calculate price impact
 
     #[view]
@@ -50,7 +52,6 @@ module dex_utils::dex_utils {
         coin_a_amount_in: u64,
         coin_b_amount_in: u64,
     ): u64 {
-        let (coin_a_amount_in, coin_b_amount_in) = get_exact_provide_amount(pair, coin_a_amount_in, coin_b_amount_in);
         let total_share = option::extract(&mut fungible_asset::supply(pair));
         let pool_info = dex::get_pool_info(pair);
         let coin_a_amount = dex::get_coin_a_amount_from_pool_info_response(&pool_info);
@@ -63,12 +64,12 @@ module dex_utils::dex_utils {
                 coin_b_amount_in
             }
         } else {
-            let uinit_share_ratio = decimal128::from_ratio_u64(coin_a_amount_in, coin_a_amount);
-            let counterpart_share_ratio = decimal128::from_ratio_u64(coin_b_amount_in, coin_b_amount);
-            if (decimal128::val(&uinit_share_ratio) > decimal128::val(&counterpart_share_ratio)) {
-                (decimal128::mul_u128(&counterpart_share_ratio, total_share) as u64)
+            let a_share_ratio = decimal128::from_ratio_u64(coin_a_amount_in, coin_a_amount);
+            let b_share_ratio = decimal128::from_ratio_u64(coin_b_amount_in, coin_b_amount);
+            if (decimal128::val(&a_share_ratio) > decimal128::val(&b_share_ratio)) {
+                (decimal128::mul_u128(&b_share_ratio, total_share) as u64)
             } else {
-                (decimal128::mul_u128(&uinit_share_ratio, total_share) as u64)
+                (decimal128::mul_u128(&a_share_ratio, total_share) as u64)
             }
         }
     }
@@ -85,7 +86,7 @@ module dex_utils::dex_utils {
 
         let is_coin_b = metadata_b == offer_asset_metadata;
         let is_coin_a = metadata_a == offer_asset_metadata;
-        assert!(is_coin_b || is_coin_a, error::invalid_argument(112));
+        assert!(is_coin_b || is_coin_a, error::invalid_argument(EINVALID_TOKEN));
 
         let total_share = option::extract(&mut fungible_asset::supply(pair));
         assert!(total_share != 0, error::invalid_state(1));
@@ -260,12 +261,12 @@ module dex_utils::dex_utils {
         if (total_share == 0) {
             (coin_a_amount_in, coin_b_amount_in)
         } else {
-            let uinit_share_ratio = decimal128::from_ratio_u64(coin_a_amount_in, coin_a_amount);
-            let counterpart_share_ratio = decimal128::from_ratio_u64(coin_b_amount_in, coin_b_amount);
-            if (decimal128::val(&uinit_share_ratio) > decimal128::val(&counterpart_share_ratio)) {
-                coin_a_amount_in = decimal128::mul_u64(&counterpart_share_ratio, coin_a_amount);
+            let a_share_ratio = decimal128::from_ratio_u64(coin_a_amount_in, coin_a_amount);
+            let b_share_ratio = decimal128::from_ratio_u64(coin_b_amount_in, coin_b_amount);
+            if (decimal128::val(&a_share_ratio) > decimal128::val(&b_share_ratio)) {
+                coin_a_amount_in = decimal128::mul_u64(&b_share_ratio, coin_a_amount);
             } else {
-                coin_b_amount_in = decimal128::mul_u64(&uinit_share_ratio, coin_b_amount);
+                coin_b_amount_in = decimal128::mul_u64(&a_share_ratio, coin_b_amount);
             };
 
             (coin_a_amount_in, coin_b_amount_in)
