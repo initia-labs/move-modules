@@ -29,6 +29,44 @@ module swap_transfer::swap_transfer {
 
     const EUNKNOWN_TYPE: u64 = 2;
 
+    #[view]
+    public fun mixed_swap_simulation(routes: vector<vector<vector<u8>>>, offer_asset_metadata: Object<Metadata>, offer_asset_amount: u64): u64 {
+        let len = vector::length(&routes);
+        let index = 0;
+        while(index < len) {
+            let route = vector::borrow(&routes, index);
+            let type = from_bcs::to_u8(*vector::borrow(route, 0));
+
+            assert!(type < 2, error::invalid_argument(EUNKNOWN_TYPE));
+            (offer_asset_metadata, offer_asset_amount) = if (type == 0) {
+                let config_addr = from_bcs::to_address(*vector::borrow(route, 1));
+                let pair = object::address_to_object<Config>(config_addr);
+                let (metadata_a, metadata_b) = dex::pool_metadata(pair);
+                let return_asset_metadata = if (offer_asset_metadata == metadata_a) {
+                    metadata_b
+                } else {
+                    metadata_a
+                };
+                (
+                    return_asset_metadata,
+                    dex::get_swap_simulation(pair, offer_asset_metadata, offer_asset_amount),
+                )
+            } else { // else if (type == 1) {
+                let return_asset_metadata_address = from_bcs::to_address(*vector::borrow(route, 1));
+                let return_asset_metadata = object::address_to_object<Metadata>(return_asset_metadata_address);
+                let (return_amount, _) = minitswap::swap_simulation(offer_asset_metadata, return_asset_metadata, offer_asset_amount);
+                (
+                    return_asset_metadata,
+                    return_amount
+                )
+            };
+            index = index + 1;
+        };
+
+        let return_asset_amount = offer_asset_amount;
+        return_asset_amount
+    }
+
     /// swap on dex and ibc transfer to
     public entry fun swap_transfer(
         account: &signer,
@@ -151,6 +189,21 @@ module swap_transfer::swap_transfer {
         assert_min_amount(min_return_amount, &return_asset);
 
         deposit_fa(account, return_asset, bridge_id, to, data);
+    }
+
+    public entry fun mixed_route_swap_to(
+        account: &signer,
+        offer_asset_metadata: Object<Metadata>,
+        routes: vector<vector<vector<u8>>>,
+        offer_asset_amount: u64,
+        min_return_amount: Option<u64>,
+        to: address,
+    ) {
+        let offer_asset = primary_fungible_store::withdraw(account, offer_asset_metadata, offer_asset_amount);
+        let return_asset = mixed_swap(routes, offer_asset);
+        assert_min_amount(min_return_amount, &return_asset);
+
+        primary_fungible_store::deposit(to, return_asset);
     }
 
     /// routes: vector[
