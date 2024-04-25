@@ -30,7 +30,7 @@ module swap_transfer::swap_transfer {
     const EUNKNOWN_TYPE: u64 = 2;
 
     #[view]
-    public fun mixed_swap_simulation(routes: vector<vector<vector<u8>>>, offer_asset_metadata: Object<Metadata>, offer_asset_amount: u64): u64 {
+    public fun mixed_route_swap_simulation(routes: vector<vector<vector<u8>>>, offer_asset_metadata: Object<Metadata>, offer_asset_amount: u64): u64 {
         let len = vector::length(&routes);
         let index = 0;
         while(index < len) {
