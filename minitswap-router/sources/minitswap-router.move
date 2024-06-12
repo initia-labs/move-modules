@@ -26,9 +26,18 @@ module router::minitswap_router {
 
     const EINVALID_ROUTE: u64 = 2;
 
+    const EMAX_BATCH_COUNT: u64 = 3;
+
+    const ENOT_OWNER: u64 = 4;
+
     const MINITSWAP: u8 = 0;
     const STABLESWAP: u8 = 1;
     const OP_BRIDGE: u8 = 2;
+
+    struct Config has key {
+        owner: address,
+        max_batch_count: u64,
+    }
 
     struct Key has copy, drop, store {
         route: u8,
@@ -43,8 +52,9 @@ module router::minitswap_router {
         bridge_out: bool,
         preferred_route: Option<u8>,
         number_of_batches: Option<u64>,
-    ): SwapSimulationResponse {
-       let is_l1_offered = is_l1_init_metadata(offer_asset_metadata);
+    ): SwapSimulationResponse acquires Config {
+        let config = borrow_global<Config>(@router);
+        let is_l1_offered = is_l1_init_metadata(offer_asset_metadata);
 
         let return_asset_metadata = if (is_l1_offered) {
             l2_init_metadata
@@ -61,6 +71,7 @@ module router::minitswap_router {
         } else {
             1
         };
+        assert!(number_of_batches <= config.max_batch_count, error::invalid_argument(EMAX_BATCH_COUNT));
 
         let pools = minitswap::get_pools(l2_init_metadata);
         let (_, _, virtual_pool, stableswap_pool) = minitswap::unpack_pools_response(pools);
@@ -161,6 +172,20 @@ module router::minitswap_router {
         stableswap_offer_amount: u64,
         stableswap_return_amount: u64,
     }
+    
+    fun init_module(account: &signer) {
+        move_to(account, Config {
+            owner: signer::address_of(account),
+            max_batch_count: 10,
+        });
+    }
+
+    public entry fun update_config(account: &signer, owner: address, max_batch_count: u64) acquires Config {
+        let config = borrow_global_mut<Config>(@router);
+        assert!(signer::address_of(account) == config.owner, error::permission_denied(ENOT_OWNER));
+        config.owner = owner;
+        config.max_batch_count = max_batch_count;
+    }
 
     public entry fun swap(
         account: &signer,
@@ -172,7 +197,8 @@ module router::minitswap_router {
         preferred_route: Option<u8>,
         min_return_amount: Option<u64>,
         number_of_batches: Option<u64>,
-    ) {
+    ) acquires Config {
+        let config = borrow_global<Config>(@router);
         let is_l1_offered = is_l1_init_metadata(offer_asset_metadata);
 
         let return_asset_metadata = if (is_l1_offered) {
@@ -190,6 +216,8 @@ module router::minitswap_router {
         } else {
             1
         };
+
+        assert!(number_of_batches <= config.max_batch_count, error::invalid_argument(EMAX_BATCH_COUNT));
 
         let pools = minitswap::get_pools(l2_init_metadata);
         let (op_bridge_id, ibc_channel, virtual_pool, stableswap_pool) = minitswap::unpack_pools_response(pools);
