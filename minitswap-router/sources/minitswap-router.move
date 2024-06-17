@@ -74,7 +74,7 @@ module router::minitswap_router {
         assert!(number_of_batches <= config.max_batch_count, error::invalid_argument(EMAX_BATCH_COUNT));
 
         let pools = minitswap::get_pools(l2_init_metadata);
-        let (_, _, virtual_pool, stableswap_pool) = minitswap::unpack_pools_response(pools);
+        let (_, _, _, _, virtual_pool, stableswap_pool) = minitswap::unpack_pools_response(pools);
         let simulation_cache = simple_map::create();
 
         let (op_bridge_offer_amount, minitswap_offer_amount, stableswap_offer_amount) = if (option::is_some(&preferred_route)) {
@@ -220,7 +220,7 @@ module router::minitswap_router {
         assert!(number_of_batches <= config.max_batch_count, error::invalid_argument(EMAX_BATCH_COUNT));
 
         let pools = minitswap::get_pools(l2_init_metadata);
-        let (op_bridge_id, ibc_channel, virtual_pool, stableswap_pool) = minitswap::unpack_pools_response(pools);
+        let (_, _, op_bridge_id, ibc_channel, virtual_pool, stableswap_pool) = minitswap::unpack_pools_response(pools);
 
         let (op_bridge_amount, minitswap_amount, stableswap_amount) = if (option::is_some(&preferred_route)) {
             let route = option::extract(&mut preferred_route);
@@ -295,7 +295,7 @@ module router::minitswap_router {
         };
 
         let stableswap_return_asset = if (stableswap_amount != 0) {
-            let offer_asset = primary_fungible_store::withdraw(account, offer_asset_metadata, minitswap_amount);
+            let offer_asset = primary_fungible_store::withdraw(account, offer_asset_metadata, stableswap_amount);
             stableswap::swap(*option::borrow(&stableswap_pool), offer_asset, return_asset_metadata, option::none())
         } else {
             fungible_asset::zero(return_asset_metadata)
@@ -334,7 +334,11 @@ module router::minitswap_router {
         };
 
         let minitswap_return_amount = if (virtual_pool_exists) {
-            let former_return_amount = *simple_map::borrow(simulation_cache, &Key { route: MINITSWAP, amount: former_minitswap_amount });
+            let former_return_amount = if (former_minitswap_amount == 0) {
+                0
+            } else {
+                *simple_map::borrow(simulation_cache, &Key { route: MINITSWAP, amount: former_minitswap_amount })
+            };
             let return_amount = simulation(
                 simulation_cache,
                 option::none(),
@@ -352,7 +356,11 @@ module router::minitswap_router {
         };
 
         let stableswap_return_amount = if (option::is_some(&stableswap_pool)) {
-            let former_return_amount = *simple_map::borrow(simulation_cache, &Key { route: STABLESWAP, amount: former_stableswap_amount });
+            let former_return_amount = if (former_stableswap_amount == 0) {
+                0
+            } else {
+                *simple_map::borrow(simulation_cache, &Key { route: STABLESWAP, amount: former_stableswap_amount })
+            };
             let pool_addr = option::some(object::object_address(*option::borrow(&stableswap_pool)));
             let return_amount = simulation(
                 simulation_cache,
