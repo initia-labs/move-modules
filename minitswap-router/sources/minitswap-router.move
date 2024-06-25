@@ -47,24 +47,21 @@ module router::minitswap_router {
     #[view]
     public fun swap_simulation(
         offer_asset_metadata: Object<Metadata>,
+        return_asset_metadata: Object<Metadata>,
         offer_amount: u64,
-        l2_init_metadata: Object<Metadata>,
         bridge_out: bool,
         preferred_route: Option<u8>,
         number_of_batches: Option<u64>,
     ): SwapSimulationResponse acquires Config {
         let config = borrow_global<Config>(@router);
         let is_l1_offered = is_l1_init_metadata(offer_asset_metadata);
-
-        let return_asset_metadata = if (is_l1_offered) {
-            l2_init_metadata
+        let l2_init_metadata = if (is_l1_offered) {
+            return_asset_metadata
         } else {
-            l1_init_metadata()
+            offer_asset_metadata
         };
-
-        if (!is_l1_offered) {
-            assert!(l2_init_metadata == offer_asset_metadata, error::invalid_argument(EINVALID_ROUTE)); 
-        };
+        
+        assert!(return_asset_metadata != offer_asset_metadata, error::invalid_argument(EINVALID_ROUTE)); 
 
         let number_of_batches = if (option::is_some(&number_of_batches)) {
             option::extract(&mut number_of_batches)
@@ -82,7 +79,7 @@ module router::minitswap_router {
             assert!(route <= 2, error::invalid_argument(EINVALID_ROUTE));
 
             if (route == OP_BRIDGE) {
-                assert!(!is_l1_offered, error::invalid_argument(EINVALID_ROUTE));
+                assert!(is_l1_offered && bridge_out, error::invalid_argument(EINVALID_ROUTE));
                 (offer_amount, 0, 0)
             } else if (route == MINITSWAP) {
                 assert!(option::is_some(&virtual_pool), error::invalid_argument(EINVALID_ROUTE));
@@ -190,8 +187,8 @@ module router::minitswap_router {
     public entry fun swap(
         account: &signer,
         offer_asset_metadata: Object<Metadata>,
+        return_asset_metadata: Object<Metadata>,
         offer_amount: u64,
-        l2_init_metadata: Object<Metadata>,
         receiver: address,
         bridge_out: bool,
         preferred_route: Option<u8>,
@@ -201,15 +198,13 @@ module router::minitswap_router {
         let config = borrow_global<Config>(@router);
         let is_l1_offered = is_l1_init_metadata(offer_asset_metadata);
 
-        let return_asset_metadata = if (is_l1_offered) {
-            l2_init_metadata
+        let l2_init_metadata = if (is_l1_offered) {
+            return_asset_metadata
         } else {
-            l1_init_metadata()
+            offer_asset_metadata
         };
-
-        if (!is_l1_offered) {
-            assert!(l2_init_metadata == offer_asset_metadata, error::invalid_argument(EINVALID_ROUTE)); 
-        };
+        
+        assert!(return_asset_metadata != offer_asset_metadata, error::invalid_argument(EINVALID_ROUTE)); 
 
         let number_of_batches = if (option::is_some(&number_of_batches)) {
             option::extract(&mut number_of_batches)
@@ -227,7 +222,7 @@ module router::minitswap_router {
             assert!(route <= 2, error::invalid_argument(EINVALID_ROUTE));
 
             if (route == OP_BRIDGE) {
-                assert!(!is_l1_offered, error::invalid_argument(EINVALID_ROUTE));
+                assert!(is_l1_offered && bridge_out, error::invalid_argument(EINVALID_ROUTE));
                 (offer_amount, 0, 0)
             } else if (route == MINITSWAP) {
                 assert!(option::is_some(&virtual_pool), error::invalid_argument(EINVALID_ROUTE));
@@ -390,6 +385,9 @@ module router::minitswap_router {
         return_asset_metadata: Object<Metadata>,
         key: Key,
     ): u64 {
+        if (key.amount == 0) {
+            return 0
+        };
         if (!simple_map::contains_key(simulation_cache, &key)) {
             if (key.route == OP_BRIDGE) {
                 simple_map::add(simulation_cache, key, key.amount);
@@ -469,5 +467,307 @@ module router::minitswap_router {
 
         let req = json::stringify(simple_json::to_json_object(&obj));
         cosmos::stargate(sender, req);
+    }
+
+    #[test_only]
+    fun initialized_coin(
+        account: &signer,
+        symbol: String,
+    ): (coin::BurnCapability, coin::FreezeCapability, coin::MintCapability) {
+        let (mint_cap, burn_cap, freeze_cap, _) = coin::initialize_and_generate_extend_ref (
+            account,
+            option::none(),
+            string::utf8(b""),
+            symbol,
+            6,
+            string::utf8(b""),
+            string::utf8(b""),
+        );
+
+        return (burn_cap, freeze_cap, mint_cap)
+    }
+
+    #[test_only]
+    use initia_std::decimal128;
+
+    #[test_only]
+    fun test_setting(chain: &signer, router: &signer) {
+        initia_std::primary_fungible_store::init_module_for_test(chain);
+        init_module(router);
+        minitswap::init_module_for_test(chain);
+        stableswap::init_module_for_test(chain);
+
+        block::set_block_info(0, 100);
+
+        let chain_addr = signer::address_of(chain);
+
+        let (_, _, initia_mint_cap) = initialized_coin(chain, string::utf8(b"uinit"));
+        let (_, _, ibc_op_init_1_mint_cap) = initialized_coin(chain, string::utf8(b"ibc/82EB1C694C571F954E68BFD68CFCFCD6123B0EBB69AAA8BAB7A082939B45E802"));
+        let (_, _, ibc_op_init_2_mint_cap) = initialized_coin(chain, string::utf8(b"ibc/AD8D520BF2D981113B652A3BCD55368EF146FCB9E016F8B1DAECAA5D570BC8A1"));
+
+        let ibc_op_init_1_metadata = coin::metadata(chain_addr, string::utf8(b"ibc/82EB1C694C571F954E68BFD68CFCFCD6123B0EBB69AAA8BAB7A082939B45E802"));
+        let ibc_op_init_2_metadata = coin::metadata(chain_addr, string::utf8(b"ibc/AD8D520BF2D981113B652A3BCD55368EF146FCB9E016F8B1DAECAA5D570BC8A1"));
+
+        coin::mint_to(&initia_mint_cap, chain_addr, 10000000000);
+        coin::mint_to(&ibc_op_init_1_mint_cap, chain_addr, 10000000000);
+        coin::mint_to(&ibc_op_init_2_mint_cap, chain_addr, 10000000000);
+
+        minitswap::update_module_params(
+            chain,
+            option::none(),
+            option::none(),
+            option::none(),
+            option::some(decimal128::from_ratio(1, 10000)),
+            option::some(decimal128::from_ratio(1, 2)),
+            option::some(1000),
+            option::some(10000),
+            option::none(),
+            option::some(2),
+            option::some(100),
+        );
+
+        minitswap::create_pool(
+            chain,
+            ibc_op_init_1_metadata,
+            decimal128::from_ratio(1000000000, 1),
+            10000000,
+            6000,
+            decimal128::from_ratio(6, 10),
+            decimal128::from_ratio(3, 1),
+            0,
+            string::utf8(b"0x1"),
+            1,
+            string::utf8(b"channel-0"),
+        );
+
+        minitswap::create_pool(
+            chain,
+            ibc_op_init_2_metadata,
+            decimal128::from_ratio(1000000000, 1),
+            10000000,
+            6000,
+            decimal128::from_ratio(6, 10),
+            decimal128::from_ratio(3, 1),
+            1,
+            string::utf8(b"0x1"),
+            2,
+            string::utf8(b"channel-2"),
+        );
+    }
+    
+
+    #[test(chain = @0x1, router = @router)]
+    fun test_using_op_bridge(chain: signer, router: signer) acquires Config {
+        test_setting(&chain, &router);
+
+        let chain_addr = signer::address_of(&chain);
+        let init_metadata = coin::metadata(chain_addr, string::utf8(b"uinit"));
+        let ibc_op_init_1_metadata = coin::metadata(chain_addr, string::utf8(b"ibc/82EB1C694C571F954E68BFD68CFCFCD6123B0EBB69AAA8BAB7A082939B45E802"));
+        let ibc_op_init_2_metadata = coin::metadata(chain_addr, string::utf8(b"ibc/AD8D520BF2D981113B652A3BCD55368EF146FCB9E016F8B1DAECAA5D570BC8A1"));
+
+        minitswap::provide(&chain, 200000000, option::none());
+
+        swap(&chain, init_metadata, ibc_op_init_1_metadata, 1000, chain_addr, true, option::none(), option::none(), option::none());
+        swap(&chain, init_metadata, ibc_op_init_2_metadata, 1000, chain_addr, true, option::none(), option::none(), option::none());
+    }
+
+    #[test(chain = @0x1, router = @router)]
+    fun test_prefer_op_bridge(chain: signer, router: signer) acquires Config {
+        test_setting(&chain, &router);
+
+        let chain_addr = signer::address_of(&chain);
+        let init_metadata = coin::metadata(chain_addr, string::utf8(b"uinit"));
+        let ibc_op_init_1_metadata = coin::metadata(chain_addr, string::utf8(b"ibc/82EB1C694C571F954E68BFD68CFCFCD6123B0EBB69AAA8BAB7A082939B45E802"));
+        let ibc_op_init_2_metadata = coin::metadata(chain_addr, string::utf8(b"ibc/AD8D520BF2D981113B652A3BCD55368EF146FCB9E016F8B1DAECAA5D570BC8A1"));
+
+        minitswap::provide(&chain, 200000000, option::none());
+
+        swap(&chain, init_metadata, ibc_op_init_1_metadata, 1000, chain_addr, true, option::some(OP_BRIDGE), option::none(), option::none());
+        swap(&chain, init_metadata, ibc_op_init_2_metadata, 1000, chain_addr, true, option::some(OP_BRIDGE), option::none(), option::none());
+    }
+
+    #[test(chain = @0x1, router = @router)]
+    #[expected_failure(abort_code = 0x30007, location = initia_std::minitswap)]
+    fun test_failure_ibc_op_init_price_too_low(chain: signer, router: signer) acquires Config {
+        test_setting(&chain, &router);
+
+        let chain_addr = signer::address_of(&chain);
+        let init_metadata = coin::metadata(chain_addr, string::utf8(b"uinit"));
+        let ibc_op_init_1_metadata = coin::metadata(chain_addr, string::utf8(b"ibc/82EB1C694C571F954E68BFD68CFCFCD6123B0EBB69AAA8BAB7A082939B45E802"));
+
+        minitswap::provide(&chain, 200000000, option::none());
+
+        swap(&chain, init_metadata, ibc_op_init_1_metadata, 1000, chain_addr, true, option::some(MINITSWAP), option::none(), option::none());
+    }
+
+    #[test(chain = @0x1, router = @router)]
+    #[expected_failure(abort_code = 0x10002, location = Self)]
+    fun test_failure_stableswap_not_exists(chain: signer, router: signer) acquires Config {
+        test_setting(&chain, &router);
+
+        let chain_addr = signer::address_of(&chain);
+        let init_metadata = coin::metadata(chain_addr, string::utf8(b"uinit"));
+        let ibc_op_init_1_metadata = coin::metadata(chain_addr, string::utf8(b"ibc/82EB1C694C571F954E68BFD68CFCFCD6123B0EBB69AAA8BAB7A082939B45E802"));
+
+        minitswap::provide(&chain, 200000000, option::none());
+
+        swap(&chain, init_metadata, ibc_op_init_1_metadata, 1000, chain_addr, true, option::some(STABLESWAP), option::none(), option::none());
+    }
+
+    #[test(chain = @0x1, router = @router)]
+    fun test_minitswap_return_amount(chain: signer, router: signer) acquires Config {
+        test_setting(&chain, &router);
+
+        let chain_addr = signer::address_of(&chain);
+        let init_metadata = coin::metadata(chain_addr, string::utf8(b"uinit"));
+        let ibc_op_init_1_metadata = coin::metadata(chain_addr, string::utf8(b"ibc/82EB1C694C571F954E68BFD68CFCFCD6123B0EBB69AAA8BAB7A082939B45E802"));
+
+        minitswap::provide(&chain, 200000000, option::none());
+
+        minitswap::swap(&chain, ibc_op_init_1_metadata, init_metadata, 2000000, option::none());
+        let balance_before = coin::balance(chain_addr, ibc_op_init_1_metadata);
+        swap(&chain, init_metadata, ibc_op_init_1_metadata, 1000, chain_addr, true, option::some(MINITSWAP), option::none(), option::none());
+        let balance_after = coin::balance(chain_addr, ibc_op_init_1_metadata);
+
+        assert!(balance_after - balance_before == 1007, 0);
+    }
+
+    #[test(chain = @0x1, router = @router)]
+    fun test_stableswap_return_amount(chain: signer, router: signer) acquires Config {
+        test_setting(&chain, &router);
+
+        let chain_addr = signer::address_of(&chain);
+        let init_metadata = coin::metadata(chain_addr, string::utf8(b"uinit"));
+        let ibc_op_init_1_metadata = coin::metadata(chain_addr, string::utf8(b"ibc/82EB1C694C571F954E68BFD68CFCFCD6123B0EBB69AAA8BAB7A082939B45E802"));
+
+        minitswap::provide(&chain, 200000000, option::none());
+        minitswap::create_stableswap_pool(
+            &chain,
+            1,
+            string::utf8(b"channel-0"),
+            ibc_op_init_1_metadata,
+            10000000,
+            10000000
+        );
+
+        let pools = minitswap::get_pools(ibc_op_init_1_metadata);
+        let (_, _, _, _, _, stableswap_pool) = minitswap::unpack_pools_response(pools);
+
+        stableswap::swap_script(&chain, *option::borrow(&stableswap_pool), ibc_op_init_1_metadata, init_metadata, 5000000, option::none());
+
+        let SwapSimulationResponse {
+            op_bridge_offer_amount: _,
+            op_bridge_return_amount: _,
+            minitswap_offer_amount: _,
+            minitswap_return_amount: _,
+            stableswap_offer_amount,
+            stableswap_return_amount,
+        } = swap_simulation(init_metadata, ibc_op_init_1_metadata, 1000, true, option::some(STABLESWAP), option::none());
+        assert!(stableswap_offer_amount == 1000, 0);
+
+        let stableswap_return_amount_from_stableswap
+            = stableswap::get_swap_simulation(*option::borrow(&stableswap_pool), init_metadata, ibc_op_init_1_metadata, 1000);
+
+        let balance_before = coin::balance(chain_addr, ibc_op_init_1_metadata);
+        swap(&chain, init_metadata, ibc_op_init_1_metadata, 1000, chain_addr, true, option::some(STABLESWAP), option::none(), option::none());
+        let balance_after = coin::balance(chain_addr, ibc_op_init_1_metadata);
+
+        let actual_return_amount = balance_after - balance_before;
+
+        assert!(stableswap_return_amount == stableswap_return_amount_from_stableswap, 1);
+        assert!(stableswap_return_amount == actual_return_amount, 1);
+    }
+
+    #[test(chain = @0x1, router = @router)]
+    #[expected_failure(abort_code = 0x10002, location = Self)]
+    fun test_failure_use_op_bridge_with_bridge_out_false(chain: signer, router: signer) acquires Config {
+        test_setting(&chain, &router);
+
+        let chain_addr = signer::address_of(&chain);
+        let init_metadata = coin::metadata(chain_addr, string::utf8(b"uinit"));
+        let ibc_op_init_1_metadata = coin::metadata(chain_addr, string::utf8(b"ibc/82EB1C694C571F954E68BFD68CFCFCD6123B0EBB69AAA8BAB7A082939B45E802"));
+
+        minitswap::provide(&chain, 200000000, option::none());
+
+        minitswap::swap(&chain, ibc_op_init_1_metadata, init_metadata, 2000000, option::none());
+        swap(&chain, init_metadata, ibc_op_init_1_metadata, 1000, chain_addr, false, option::some(OP_BRIDGE), option::none(), option::none());
+    }
+
+    #[test(chain = @0x1, router = @router)]
+    fun test_batch(chain: signer, router: signer) acquires Config {
+        test_setting(&chain, &router);
+
+        let chain_addr = signer::address_of(&chain);
+        let init_metadata = coin::metadata(chain_addr, string::utf8(b"uinit"));
+        let ibc_op_init_1_metadata = coin::metadata(chain_addr, string::utf8(b"ibc/82EB1C694C571F954E68BFD68CFCFCD6123B0EBB69AAA8BAB7A082939B45E802"));
+
+        minitswap::provide(&chain, 200000000, option::none());
+        minitswap::create_stableswap_pool(
+            &chain,
+            1,
+            string::utf8(b"channel-0"),
+            ibc_op_init_1_metadata,
+            10000000,
+            10000000
+        );
+
+        let pools = minitswap::get_pools(ibc_op_init_1_metadata);
+        let (_, _, _, _, _, stableswap_pool) = minitswap::unpack_pools_response(pools);
+        let stableswap_pool = *option::borrow(&stableswap_pool);
+        minitswap::swap(&chain, ibc_op_init_1_metadata, init_metadata, 450000, option::none());
+        stableswap::swap_script(&chain, stableswap_pool, ibc_op_init_1_metadata, init_metadata, 450000, option::none());
+
+        let SwapSimulationResponse {
+            op_bridge_offer_amount,
+            op_bridge_return_amount,
+            minitswap_offer_amount,
+            minitswap_return_amount,
+            stableswap_offer_amount,
+            stableswap_return_amount,
+        } = swap_simulation(init_metadata, ibc_op_init_1_metadata, 900000, true, option::none(), option::some(3));
+
+        assert!(op_bridge_offer_amount == 300000, 0);
+        assert!(minitswap_offer_amount == 300000, 1);
+        assert!(stableswap_offer_amount == 300000, 2);
+        assert!(op_bridge_return_amount == 300000, 3);
+        assert!(minitswap_return_amount == 300276, 4);
+        assert!(stableswap_return_amount == 300823, 5);
+    }
+
+    #[test(chain = @0x1, router = @router)]
+    fun test_batch_l2_to_l1(chain: signer, router: signer) acquires Config {
+        test_setting(&chain, &router);
+
+        let chain_addr = signer::address_of(&chain);
+        let init_metadata = coin::metadata(chain_addr, string::utf8(b"uinit"));
+        let ibc_op_init_1_metadata = coin::metadata(chain_addr, string::utf8(b"ibc/82EB1C694C571F954E68BFD68CFCFCD6123B0EBB69AAA8BAB7A082939B45E802"));
+
+        minitswap::provide(&chain, 200000000, option::none());
+        minitswap::create_stableswap_pool(
+            &chain,
+            1,
+            string::utf8(b"channel-0"),
+            ibc_op_init_1_metadata,
+            10000000,
+            10000000
+        );
+
+        minitswap::swap(&chain, ibc_op_init_1_metadata, init_metadata, 900000, option::none());
+
+        let SwapSimulationResponse {
+            op_bridge_offer_amount,
+            op_bridge_return_amount,
+            minitswap_offer_amount,
+            minitswap_return_amount,
+            stableswap_offer_amount,
+            stableswap_return_amount,
+        } = swap_simulation(ibc_op_init_1_metadata, init_metadata, 900000, true, option::none(), option::some(3));
+        
+        assert!(op_bridge_offer_amount == 0, 0);
+        assert!(minitswap_offer_amount == 300000, 1);
+        assert!(stableswap_offer_amount == 600000, 2);
+        assert!(op_bridge_return_amount == 0, 3);
+        assert!(minitswap_return_amount == 297906, 4);
+        assert!(stableswap_return_amount == 597153, 5);
     }
 }
