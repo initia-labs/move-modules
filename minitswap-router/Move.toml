@@ -8,4 +8,4 @@ initia_std = "0x1"
 router = "0x42cd8467b1c86e59bf319e5664a09b6b5840bb3fac64f5ce690b5041c530565a"
 
 [dependencies]
-InitiaStdlib = { git = "https://github.com/initia-labs/movevm.git", subdir = "precompile/modules/initia_stdlib", rev = "7f413c5e84fe9929c5b0e87c7abe29e2ec936514" }
+InitiaStdlib = { git = "https://github.com/initia-labs/movevm.git", subdir = "precompile/modules/initia_stdlib", rev = "cbb9e0d2d903b79fd0d2bcfed1aa01c7503ca98c" }

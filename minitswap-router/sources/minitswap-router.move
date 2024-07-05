@@ -493,7 +493,7 @@ module router::minitswap_router {
             } else {
                 let (return_amount, _) = parse_simulation_res(simple_map::borrow(
                     simulation_cache,
-                    &Key { route: MINITSWAP, amount: former_stableswap_amount })
+                    &Key { route: MINITSWAP, amount: former_minitswap_amount })
                 );
                 return_amount
             };
