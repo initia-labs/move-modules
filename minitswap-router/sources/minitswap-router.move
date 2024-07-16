@@ -438,7 +438,7 @@ module router::minitswap_router {
         };
 
         if (op_bridge_amount != 0) {
-            return initiate_token_deposit(account, op_bridge_id, receiver, offer_asset_metadata, op_bridge_amount, vector[])
+            initiate_token_deposit(account, op_bridge_id, receiver, offer_asset_metadata, op_bridge_amount, vector[])
         };
 
         let minitswap_return_asset = if (minitswap_amount != 0) {

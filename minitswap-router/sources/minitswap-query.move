@@ -104,7 +104,7 @@ module router::minitswap_query {
             error::invalid_argument(ECOIN_TYPE)
         );
 
-        let (return_amount, fee_amount) = stableswap::single_asset_withdraw_simulation(pool_obj, return_index, liquidity_amount);
+        let (return_amount, fee_amount) = stableswap::single_asset_withdraw_simulation(pool_obj, liquidity_amount, return_index);
 
         let return_coin_denom = *vector::borrow(&coin_denoms, return_index);
         
