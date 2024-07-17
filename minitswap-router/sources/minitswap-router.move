@@ -265,14 +265,18 @@ module router::minitswap_router {
         );
         total_return_amount = total_return_amount + minitswap_return_amount;
 
-        let pool_addr = option::some(object::object_address(*option::borrow(&stableswap_pool)));
-        let (stableswap_return_amount, stableswap_fee_amount) = simulation(
-            &mut simulation_cache,
-            pool_addr,
-            offer_asset_metadata,
-            return_asset_metadata,
-            Key { route: STABLESWAP, amount: stableswap_offer_amount }
-        );
+        let (stableswap_return_amount, stableswap_fee_amount) = if (option::is_none(&stableswap_pool)) {
+            (0, 0)
+        } else {
+            let pool_addr = option::some(object::object_address(*option::borrow(&stableswap_pool)));
+            simulation(
+                &mut simulation_cache,
+                pool_addr,
+                offer_asset_metadata,
+                return_asset_metadata,
+                Key { route: STABLESWAP, amount: stableswap_offer_amount }
+            )
+        };
         total_return_amount = total_return_amount + stableswap_return_amount;
 
         if (op_bridge_offer_amount != 0) {
