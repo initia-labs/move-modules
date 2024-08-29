@@ -7,7 +7,6 @@ module swap_transfer::swap_transfer {
     use std::option::{Self, Option};
 
     use initia_std::address::to_sdk;
-    use initia_std::base64;
     use initia_std::block;
     use initia_std::coin;
     use initia_std::cosmos;
@@ -18,11 +17,23 @@ module swap_transfer::swap_transfer {
     use initia_std::minitswap;
     use initia_std::object::{Self, Object};
     use initia_std::primary_fungible_store;
-    use initia_std::simple_json;
-    use initia_std::string_utils::to_string;
 
     use dex_utils::dex_utils;
 
+    struct MsgInitiateTokenDeposit has drop, copy, store {
+        _type_: String,
+        sender: String,
+        bridge_id: u64,
+        to: String,
+        data: vector<u8>,
+        amount: Coin
+    }
+    
+    struct Coin has drop, copy, store {
+        denom: String,
+        amount: u64,
+    }
+    
     // Errors
     
     const EMIN_RETURN: u64 = 1;
@@ -278,20 +289,17 @@ module swap_transfer::swap_transfer {
         amount: u64,
         data: vector<u8>
     ) {
-        let obj = simple_json::empty();
-        simple_json::set_object(&mut obj, option::none<String>());
-        simple_json::increase_depth(&mut obj);
-        simple_json::set_string(&mut obj, option::some(string::utf8(b"@type")), string::utf8(b"/opinit.ophost.v1.MsgInitiateTokenDeposit"));
-        simple_json::set_string(&mut obj, option::some(string::utf8(b"sender")), to_sdk(signer::address_of(sender)));
-        simple_json::set_string(&mut obj, option::some(string::utf8(b"bridge_id")), to_string(&bridge_id));
-        simple_json::set_string(&mut obj, option::some(string::utf8(b"to")), to_sdk(to));
-        simple_json::set_string(&mut obj, option::some(string::utf8(b"data")), base64::to_string(data));
-        simple_json::set_object(&mut obj, option::some(string::utf8(b"amount")));
-        simple_json::increase_depth(&mut obj);
-        simple_json::set_string(&mut obj, option::some(string::utf8(b"denom")), coin::metadata_to_denom(metadata));
-        simple_json::set_string(&mut obj, option::some(string::utf8(b"amount")), to_string(&amount));
-
-        let req = json::stringify(simple_json::to_json_object(&obj));
-        cosmos::stargate(sender, req);
+        let msg = MsgInitiateTokenDeposit {
+            _type_: string::utf8(b"/opinit.ophost.v1.MsgInitiateTokenDeposit"),
+            sender: to_sdk(signer::address_of(sender)),
+            bridge_id,
+            to: to_sdk(to),
+            data,
+            amount: Coin {
+                denom: coin::metadata_to_denom(metadata),
+                amount,
+            }
+        };
+        cosmos::stargate(sender, json::marshal(&msg));
     }
 }
