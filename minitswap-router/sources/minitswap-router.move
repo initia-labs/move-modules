@@ -7,20 +7,17 @@ module router::minitswap_router {
     use std::vector;
 
     use initia_std::address::to_sdk;
-    use initia_std::base64;
     use initia_std::block;
     use initia_std::coin;
     use initia_std::cosmos;
-    use initia_std::decimal128;
+    use initia_std::bigdecimal;
     use initia_std::fungible_asset::{Self, FungibleAsset, Metadata};
     use initia_std::json;
     use initia_std::minitswap;
     use initia_std::stableswap;
     use initia_std::object::{Self, Object};
     use initia_std::primary_fungible_store;
-    use initia_std::simple_json;
     use initia_std::simple_map::{Self, SimpleMap};
-    use initia_std::string_utils::to_string;
 
     // Errors
     
@@ -43,6 +40,20 @@ module router::minitswap_router {
 
     struct Key has copy, drop, store {
         route: u8,
+        amount: u64,
+    }
+
+    struct MsgInitiateTokenDeposit has drop, copy, store {
+        _type_: String,
+        sender: String,
+        bridge_id: u64,
+        to: String,
+        data: vector<u8>,
+        amount: Coin
+    }
+
+    struct Coin has drop, copy, store {
+        denom: String,
         amount: u64,
     }
 
@@ -144,7 +155,7 @@ module router::minitswap_router {
             Key { route: MINITSWAP, amount: minitswap_offer_amount }
         );
 
-        let pool_addr = option::some(object::object_address(*option::borrow(&stableswap_pool)));
+        let pool_addr = option::some(object::object_address(option::borrow(&stableswap_pool)));
         let (stableswap_return_amount, _) = simulation(
             &mut simulation_cache,
             pool_addr,
@@ -268,7 +279,7 @@ module router::minitswap_router {
         let (stableswap_return_amount, stableswap_fee_amount) = if (option::is_none(&stableswap_pool)) {
             (0, 0)
         } else {
-            let pool_addr = option::some(object::object_address(*option::borrow(&stableswap_pool)));
+            let pool_addr = option::some(object::object_address(option::borrow(&stableswap_pool)));
             simulation(
                 &mut simulation_cache,
                 pool_addr,
@@ -286,7 +297,7 @@ module router::minitswap_router {
                 return_amount: op_bridge_offer_amount,
                 fee_metadata: offer_asset_metadata,
                 fee_amount: 0,
-                fee_rate: decimal128::zero(),
+                fee_rate: bigdecimal::zero(),
             })
         };
 
@@ -297,7 +308,7 @@ module router::minitswap_router {
                 return_amount: minitswap_return_amount,
                 fee_metadata: return_asset_metadata,
                 fee_amount: minitswap_fee_amount,
-                fee_rate: decimal128::from_ratio_u64(minitswap_fee_amount, total_return_amount),
+                fee_rate: bigdecimal::from_ratio_u64(minitswap_fee_amount, total_return_amount),
             })
         };
 
@@ -308,7 +319,7 @@ module router::minitswap_router {
                 return_amount: stableswap_return_amount,
                 fee_metadata: return_asset_metadata,
                 fee_amount: stableswap_fee_amount,
-                fee_rate: decimal128::from_ratio_u64(stableswap_fee_amount, total_return_amount),
+                fee_rate: bigdecimal::from_ratio_u64(stableswap_fee_amount, total_return_amount),
             })
         };
 
@@ -330,7 +341,7 @@ module router::minitswap_router {
         return_amount: u64,
         fee_metadata: Object<Metadata>,
         fee_amount: u64,
-        fee_rate: decimal128::Decimal128,
+        fee_rate: bigdecimal::BigDecimal,
     }
     
     fun init_module(account: &signer) {
@@ -527,7 +538,7 @@ module router::minitswap_router {
                 );
                 return_amount
             };
-            let pool_addr = option::some(object::object_address(*option::borrow(&stableswap_pool)));
+            let pool_addr = option::some(object::object_address(option::borrow(&stableswap_pool)));
             let (return_amount, _) = simulation(
                 simulation_cache,
                 pool_addr,
@@ -582,7 +593,7 @@ module router::minitswap_router {
     }
 
     fun l1_init_metadata(): Object<Metadata> {
-        let addr = object::create_object_address(@initia_std, b"uinit");
+        let addr = object::create_object_address(&@initia_std, b"uinit");
         object::address_to_object<Metadata>(addr)
     }
 
@@ -624,21 +635,18 @@ module router::minitswap_router {
         amount: u64,
         data: vector<u8>
     ) {
-        let obj = simple_json::empty();
-        simple_json::set_object(&mut obj, option::none<String>());
-        simple_json::increase_depth(&mut obj);
-        simple_json::set_string(&mut obj, option::some(string::utf8(b"@type")), string::utf8(b"/opinit.ophost.v1.MsgInitiateTokenDeposit"));
-        simple_json::set_string(&mut obj, option::some(string::utf8(b"sender")), to_sdk(signer::address_of(sender)));
-        simple_json::set_string(&mut obj, option::some(string::utf8(b"bridge_id")), to_string(&bridge_id));
-        simple_json::set_string(&mut obj, option::some(string::utf8(b"to")), to_sdk(to));
-        simple_json::set_string(&mut obj, option::some(string::utf8(b"data")), base64::to_string(data));
-        simple_json::set_object(&mut obj, option::some(string::utf8(b"amount")));
-        simple_json::increase_depth(&mut obj);
-        simple_json::set_string(&mut obj, option::some(string::utf8(b"denom")), coin::metadata_to_denom(metadata));
-        simple_json::set_string(&mut obj, option::some(string::utf8(b"amount")), to_string(&amount));
-
-        let req = json::stringify(simple_json::to_json_object(&obj));
-        cosmos::stargate(sender, req);
+        let msg = MsgInitiateTokenDeposit {
+            _type_: string::utf8(b"/opinit.ophost.v1.MsgInitiateTokenDeposit"),
+            sender: to_sdk(signer::address_of(sender)),
+            bridge_id,
+            to: to_sdk(to),
+            data,
+            amount: Coin {
+                denom: coin::metadata_to_denom(metadata),
+                amount,
+            }
+        };
+        cosmos::stargate(sender, json::marshal(&msg));
     }
 
     fun parse_simulation_res(res: &vector<u64>): (u64, u64) {
@@ -665,10 +673,10 @@ module router::minitswap_router {
 
     #[test_only]
     fun test_setting(chain: &signer, router: &signer) {
-        initia_std::primary_fungible_store::init_module_for_test(chain);
+        initia_std::primary_fungible_store::init_module_for_test();
         init_module(router);
-        minitswap::init_module_for_test(chain);
-        stableswap::init_module_for_test(chain);
+        minitswap::init_module_for_test();
+        stableswap::init_module_for_test();
 
         block::set_block_info(0, 100);
 
@@ -690,8 +698,8 @@ module router::minitswap_router {
             option::none(),
             option::none(),
             option::none(),
-            option::some(decimal128::from_ratio(1, 10000)),
-            option::some(decimal128::from_ratio(1, 2)),
+            option::some(bigdecimal::from_ratio_u64(1, 10000)),
+            option::some(bigdecimal::from_ratio_u64(1, 2)),
             option::some(1000),
             option::some(10000),
             option::none(),
@@ -702,11 +710,11 @@ module router::minitswap_router {
         minitswap::create_pool(
             chain,
             ibc_op_init_1_metadata,
-            decimal128::from_ratio(1000000000, 1),
+            bigdecimal::from_ratio_u64(1000000000, 1),
             10000000,
             6000,
-            decimal128::from_ratio(6, 10),
-            decimal128::from_ratio(3, 1),
+            bigdecimal::from_ratio_u64(6, 10),
+            bigdecimal::from_ratio_u64(3, 1),
             0,
             string::utf8(b"0x1"),
             1,
@@ -716,11 +724,11 @@ module router::minitswap_router {
         minitswap::create_pool(
             chain,
             ibc_op_init_2_metadata,
-            decimal128::from_ratio(1000000000, 1),
+            bigdecimal::from_ratio_u64(1000000000, 1),
             10000000,
             6000,
-            decimal128::from_ratio(6, 10),
-            decimal128::from_ratio(3, 1),
+            bigdecimal::from_ratio_u64(6, 10),
+            bigdecimal::from_ratio_u64(3, 1),
             1,
             string::utf8(b"0x1"),
             2,
