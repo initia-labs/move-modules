@@ -485,7 +485,7 @@ module router::minitswap_router {
     }
 
     fun find_best_route(
-        simulation_cache: &mut SimpleMap<Key, vector<u64>>,
+        simulation_cache: &mut SimpleMap<Key, SimulationRes>,
         former_op_bridge_amount: u64,
         former_minitswap_amount: u64,
         former_stableswap_amount: u64,
@@ -506,11 +506,11 @@ module router::minitswap_router {
             let former_return_amount = if (former_minitswap_amount == 0) {
                 0
             } else {
-                let (return_amount, _) = parse_simulation_res(simple_map::borrow(
+                let SimulationRes { return_amount, fee: _} = simple_map::borrow(
                     simulation_cache,
-                    &Key { route: MINITSWAP, amount: former_minitswap_amount })
-                );
-                return_amount
+                    &Key { route: MINITSWAP, amount: former_minitswap_amount });
+                
+                *return_amount
             };
             let (return_amount, _) = simulation(
                 simulation_cache,
@@ -532,11 +532,11 @@ module router::minitswap_router {
             let former_return_amount = if (former_stableswap_amount == 0) {
                 0
             } else {
-                let (return_amount, _) = parse_simulation_res(simple_map::borrow(
+                let SimulationRes { return_amount, fee: _} = simple_map::borrow(
                     simulation_cache,
-                    &Key { route: STABLESWAP, amount: former_stableswap_amount })
-                );
-                return_amount
+                    &Key { route: MINITSWAP, amount: former_minitswap_amount });
+                
+                *return_amount
             };
             let pool_addr = option::some(object::object_address(option::borrow(&stableswap_pool)));
             let (return_amount, _) = simulation(
@@ -560,8 +560,13 @@ module router::minitswap_router {
         }
     }
 
+    struct SimulationRes has drop, store {
+        return_amount: u64,
+        fee: u64
+    }
+
     fun simulation(
-        simulation_cache: &mut SimpleMap<Key, vector<u64>>,
+        simulation_cache: &mut SimpleMap<Key, SimulationRes>,
         pool_addr: Option<address>,
         offer_asset_metadata: Object<Metadata>,
         return_asset_metadata: Object<Metadata>,
@@ -572,20 +577,29 @@ module router::minitswap_router {
         };
         if (!simple_map::contains_key(simulation_cache, &key)) {
             if (key.route == OP_BRIDGE) {
-                simple_map::add(simulation_cache, key, vector[key.amount, 0]);
+                simple_map::add(simulation_cache, key, SimulationRes {
+                    return_amount: key.amount,
+                    fee: 0,
+                });
             } else if (key.route == MINITSWAP) {
                 let (return_amount, fee_amount) = minitswap::safe_swap_simulation(offer_asset_metadata, return_asset_metadata, key.amount);
-                simple_map::add(simulation_cache, key, vector[return_amount, fee_amount]);
+                simple_map::add(simulation_cache, key, SimulationRes {
+                    return_amount,
+                    fee: fee_amount,
+                });
             } else if (key.route == STABLESWAP) {
                 let pool_addr = *option::borrow(&pool_addr);
                 let pool_obj = object::address_to_object<stableswap::Pool>(pool_addr);
                 let (return_amount_before_fee, fee_amount) = stableswap::swap_simulation(pool_obj, offer_asset_metadata, return_asset_metadata, key.amount, true);
-                simple_map::add(simulation_cache, key, vector[return_amount_before_fee - fee_amount, fee_amount]);
+                simple_map::add(simulation_cache, key, SimulationRes{
+                    return_amount: return_amount_before_fee,
+                    fee: fee_amount 
+                });
             };
         };
 
         let simulation_res = simple_map::borrow(simulation_cache, &key);
-        return (*vector::borrow(simulation_res, 0), *vector::borrow(simulation_res, 1))
+        return (simulation_res.return_amount, simulation_res.fee)
     }
 
     fun is_l1_init_metadata(metadata: Object<Metadata>): bool {
@@ -647,10 +661,6 @@ module router::minitswap_router {
             }
         };
         cosmos::stargate(sender, json::marshal(&msg));
-    }
-
-    fun parse_simulation_res(res: &vector<u64>): (u64, u64) {
-        (*vector::borrow(res, 0), *vector::borrow(res, 1))
     }
 
     #[test_only]
