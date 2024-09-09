@@ -40,6 +40,9 @@ module swap_transfer::swap_transfer {
 
     const EUNKNOWN_TYPE: u64 = 2;
 
+    const DEX: u8 = 0;
+    const MINITSWAP: u8 = 1;
+
     #[view]
     public fun mixed_route_swap_simulation(offer_asset_metadata: Object<Metadata>, routes: vector<vector<vector<u8>>>, offer_asset_amount: u64): u64 {
         let len = vector::length(&routes);
@@ -49,7 +52,7 @@ module swap_transfer::swap_transfer {
             let type = from_bcs::to_u8(*vector::borrow(route, 0));
 
             assert!(type < 2, error::invalid_argument(EUNKNOWN_TYPE));
-            (offer_asset_metadata, offer_asset_amount) = if (type == 0) {
+            (offer_asset_metadata, offer_asset_amount) = if (type == DEX) {
                 let config_addr = from_bcs::to_address(*vector::borrow(route, 1));
                 let pair = object::address_to_object<Config>(config_addr);
                 let (metadata_a, metadata_b) = dex::pool_metadata(pair);
@@ -62,7 +65,7 @@ module swap_transfer::swap_transfer {
                     return_asset_metadata,
                     dex::get_swap_simulation(pair, offer_asset_metadata, offer_asset_amount),
                 )
-            } else { // else if (type == 1) {
+            } else { // else if (type == MINITSWAP) {
                 let return_asset_metadata_address = from_bcs::to_address(*vector::borrow(route, 1));
                 let return_asset_metadata = object::address_to_object<Metadata>(return_asset_metadata_address);
                 let (return_amount, _) = minitswap::swap_simulation(offer_asset_metadata, return_asset_metadata, offer_asset_amount);
@@ -229,11 +232,11 @@ module swap_transfer::swap_transfer {
             let type = from_bcs::to_u8(*vector::borrow(route, 0));
 
             assert!(type < 2, error::invalid_argument(EUNKNOWN_TYPE));
-            offer_asset = if (type == 0) {
+            offer_asset = if (type == DEX) {
                 let config_addr = from_bcs::to_address(*vector::borrow(route, 1));
                 let pair = object::address_to_object<Config>(config_addr);
                 dex::swap(pair, offer_asset)
-            } else { // else if (type == 1) {
+            } else { // else if (type == MINITSWAP) {
                 let return_asset_metadata_address = from_bcs::to_address(*vector::borrow(route, 1));
                 let return_asset_metadata = object::address_to_object<Metadata>(return_asset_metadata_address);
                 minitswap::swap_internal(offer_asset, return_asset_metadata)
