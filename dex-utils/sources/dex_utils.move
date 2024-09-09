@@ -7,7 +7,8 @@ module dex_utils::dex_utils {
 
     use initia_std::coin;
     use initia_std::cosmos;
-    use initia_std::decimal128::{Self, Decimal128};
+    use initia_std::bigdecimal::{Self, BigDecimal};
+    use initia_std::biguint;
     use initia_std::dex::{Self, Config};
     use initia_std::object::{Self, Object};
     use initia_std::fungible_asset::{Self, FungibleAsset, Metadata};
@@ -25,8 +26,8 @@ module dex_utils::dex_utils {
         offer_asset_metadata: Object<Metadata>,
         route: vector<Object<Config>>, // path of pair
         offer_amount: u64,
-    ): (u64, vector<Decimal128>) {
-        let price_impacts: vector<Decimal128> = vector[];
+    ): (u64, vector<BigDecimal>) {
+        let price_impacts: vector<BigDecimal> = vector[];
         let index = 0;
         let len = vector::length(&route);
         while(index < len) {
@@ -64,12 +65,12 @@ module dex_utils::dex_utils {
                 coin_b_amount_in
             }
         } else {
-            let a_share_ratio = decimal128::from_ratio_u64(coin_a_amount_in, coin_a_amount);
-            let b_share_ratio = decimal128::from_ratio_u64(coin_b_amount_in, coin_b_amount);
-            if (decimal128::val(&a_share_ratio) > decimal128::val(&b_share_ratio)) {
-                (decimal128::mul_u128(&b_share_ratio, total_share) as u64)
+            let a_share_ratio = bigdecimal::from_ratio_u64(coin_a_amount_in, coin_a_amount);
+            let b_share_ratio = bigdecimal::from_ratio_u64(coin_b_amount_in, coin_b_amount);
+            if (bigdecimal::gt(a_share_ratio, b_share_ratio)) {
+                (bigdecimal::mul_by_u128_truncate(b_share_ratio, total_share) as u64)
             } else {
-                (decimal128::mul_u128(&a_share_ratio, total_share) as u64)
+                (bigdecimal::mul_by_u128_truncate(a_share_ratio, total_share) as u64)
             }
         }
     }
@@ -79,7 +80,7 @@ module dex_utils::dex_utils {
         pair: Object<Config>,
         offer_asset_metadata: Object<Metadata>,
         amount_in: u64
-    ): (u64, Decimal128) {
+    ): (u64, BigDecimal) {
         let (coin_a_amount, coin_b_amount, coin_a_weight, coin_b_weight, swap_fee_rate) = dex::pool_info(pair, false);
         let (metadata_a, metadata_b) = dex::pool_metadata(pair);
         let price_before = get_spot_price(coin_a_amount, coin_b_amount, coin_a_weight, coin_b_weight);
@@ -91,18 +92,18 @@ module dex_utils::dex_utils {
         let total_share = option::extract(&mut fungible_asset::supply(pair));
         assert!(total_share != 0, error::invalid_state(1));
         let (normalized_weight, pool_amount_in) = if (is_coin_a) {
-            let normalized_weight = decimal128::from_ratio(
-                decimal128::val(&coin_a_weight),
-                decimal128::val(&coin_a_weight) + decimal128::val(&coin_b_weight)
+            let normalized_weight = bigdecimal::div(
+                coin_a_weight,
+                bigdecimal::add(coin_a_weight, coin_b_weight)
             );
 
             coin_a_amount = coin_a_amount + amount_in;
             let pool_amount_in = coin_a_amount;
             (normalized_weight, pool_amount_in)
         } else {
-            let normalized_weight = decimal128::from_ratio(
-                decimal128::val(&coin_b_weight),
-                decimal128::val(&coin_a_weight) + decimal128::val(&coin_b_weight)
+            let normalized_weight = bigdecimal::div(
+                coin_b_weight,
+                bigdecimal::add(coin_a_weight, coin_b_weight)
             );
 
             coin_b_amount = coin_b_amount + amount_in;
@@ -112,19 +113,19 @@ module dex_utils::dex_utils {
         let price_after = get_spot_price(coin_a_amount, coin_b_amount, coin_a_weight, coin_b_weight);
 
         // compute fee amount with the assumption that we will swap (1 - normalized_weight) of amount_in
-        let adjusted_swap_amount = decimal128::mul_u128(
-            &decimal128::sub(&decimal128::one(), &normalized_weight),
+        let adjusted_swap_amount = bigdecimal::mul_by_u128_truncate(
+            bigdecimal::sub(bigdecimal::one(), normalized_weight),
             (amount_in as u128)
         );
-        let fee_amount = decimal128::mul_u128(&swap_fee_rate, adjusted_swap_amount);
+        let fee_amount = bigdecimal::mul_by_u128_truncate(swap_fee_rate, adjusted_swap_amount);
 
         // actual amount in after deducting fee amount
         let adjusted_amount_in = amount_in - (fee_amount as u64);
 
         // calculate new total share and new liquidity
-        let base = decimal128::from_ratio((adjusted_amount_in + (pool_amount_in as u64) as u128), (pool_amount_in as u128));
-        let pool_ratio = pow(&base, &normalized_weight);
-        let new_total_share = decimal128::mul_u128(&pool_ratio, total_share);
+        let base = bigdecimal::from_ratio_u128((adjusted_amount_in + (pool_amount_in as u64) as u128), (pool_amount_in as u128));
+        let pool_ratio = pow(base, normalized_weight);
+        let new_total_share = bigdecimal::mul_by_u128_truncate(pool_ratio, total_share);
 
         ((new_total_share - total_share as u64), get_price_impact(price_before, price_after))
     }
@@ -134,7 +135,7 @@ module dex_utils::dex_utils {
         pair: Object<Config>,
         offer_asset_metadata: Object<Metadata>,
         offer_amount: u64,
-    ): (u64, Decimal128) {
+    ): (u64, BigDecimal) {
         let (coin_a_pool, coin_b_pool, coin_a_weight, coin_b_weight, swap_fee_rate) = dex::pool_info(pair, true);
         let (metadata_a, _) = dex::pool_metadata(pair);
         let is_offer_a = metadata_a == offer_asset_metadata;
@@ -261,85 +262,88 @@ module dex_utils::dex_utils {
         if (total_share == 0) {
             (coin_a_amount_in, coin_b_amount_in)
         } else {
-            let a_share_ratio = decimal128::from_ratio_u64(coin_a_amount_in, coin_a_amount);
-            let b_share_ratio = decimal128::from_ratio_u64(coin_b_amount_in, coin_b_amount);
-            if (decimal128::val(&a_share_ratio) > decimal128::val(&b_share_ratio)) {
-                coin_a_amount_in = decimal128::mul_u64(&b_share_ratio, coin_a_amount);
+            let a_share_ratio = bigdecimal::from_ratio_u64(coin_a_amount_in, coin_a_amount);
+            let b_share_ratio = bigdecimal::from_ratio_u64(coin_b_amount_in, coin_b_amount);
+            if (bigdecimal::gt(a_share_ratio, b_share_ratio)) {
+                coin_a_amount_in = bigdecimal::mul_by_u64_truncate(b_share_ratio, coin_a_amount);
             } else {
-                coin_b_amount_in = decimal128::mul_u64(&a_share_ratio, coin_b_amount);
+                coin_b_amount_in = bigdecimal::mul_by_u64_truncate(a_share_ratio, coin_b_amount);
             };
 
             (coin_a_amount_in, coin_b_amount_in)
         }
     }
 
-    fun get_spot_price(base_pool: u64, quote_pool: u64, base_weight: Decimal128, quote_weight: Decimal128): Decimal128 {
-        decimal128::from_ratio_u64(
-            decimal128::mul_u64(&base_weight, quote_pool), 
-            decimal128::mul_u64(&quote_weight, base_pool),
+    fun get_spot_price(base_pool: u64, quote_pool: u64, base_weight: BigDecimal, quote_weight: BigDecimal): BigDecimal {
+        bigdecimal::from_ratio_u64(
+            bigdecimal::mul_by_u64_truncate(base_weight, quote_pool), 
+            bigdecimal::mul_by_u64_truncate(quote_weight, base_pool),
         )
     }
 
     /// a^x = 1 + sigma[(k^n)/n!]
     /// k = x * ln(a)
-    fun pow(base: &Decimal128, exp: &Decimal128): Decimal128 {
+    fun pow(base: BigDecimal, exp: BigDecimal): BigDecimal {
         assert!(
-            decimal128::val(base) != 0 && decimal128::val(base) < 2000000000000000000,
-            error::invalid_argument(123),
+            !bigdecimal::is_zero(base) && bigdecimal::lt(base, bigdecimal::from_u64(2)),
+            error::invalid_argument(123)
         );
 
-        let res = decimal128::one();
+        let res = bigdecimal::one();
         let (ln_a, neg) = ln(base);
-        let k = mul_decimals(&ln_a, exp);
+        let k = bigdecimal::mul(ln_a, exp);
         let comp = k;
         let index = 1;
-        let subs: vector<Decimal128> = vector[];
-        while(decimal128::val(&comp) > 100000) {
+        let subs: vector<BigDecimal> = vector[];
+
+        let precision = bigdecimal::from_scaled(biguint::from_u64(100000));
+        while (bigdecimal::gt(comp, precision)) {
             if (index & 1 == 1 && neg) {
                 vector::push_back(&mut subs, comp)
             } else {
-                res = decimal128::add(&res, &comp)
+                res = bigdecimal::add(res, comp)
             };
 
-            comp = decimal128::div(&mul_decimals(&comp, &k), index + 1);
+            comp = bigdecimal::div_by_u64(bigdecimal::mul(comp, k), index + 1);
             index = index + 1;
         };
 
         let index = 0;
-        while(index < vector::length(&subs)) {
+        while (index < vector::length(&subs)) {
             let comp = vector::borrow(&subs, index);
-            res = decimal128::sub(&res, comp);
+            res = bigdecimal::sub(res, *comp);
             index = index + 1;
         };
 
         res
     }
 
-    fun ln(num: &Decimal128): (Decimal128, bool) {
-        let one = decimal128::val(&decimal128::one());
-        let num_val = decimal128::val(num);
-        let (a, a_neg) = if (num_val >= one) {
-            (decimal128::sub(num, &decimal128::one()), false)
-        } else {
-            (decimal128::sub(&decimal128::one(), num), true)
-        };
+    fun ln(num: BigDecimal): (BigDecimal, bool) {
+        let one = bigdecimal::one();
+        let (a, a_neg) =
+            if (bigdecimal::ge(num, one)) {
+                (bigdecimal::sub(num, one), false)
+            } else {
+                (bigdecimal::sub(one, num), true)
+            };
 
-        let res = decimal128::zero();
+        let res = bigdecimal::zero();
         let comp = a;
         let index = 1;
 
-        while (decimal128::val(&comp) > 100000) {
+        let precision = bigdecimal::from_scaled(biguint::from_u64(100000));
+        while (bigdecimal::gt(comp, precision)) {
             if (index & 1 == 0 && !a_neg) {
-                res = decimal128::sub(&res, &comp);
+                res = bigdecimal::sub(res, comp);
             } else {
-                res = decimal128::add(&res, &comp);
+                res = bigdecimal::add(res, comp);
             };
 
             // comp(old) = a ^ n / n
             // comp(new) = comp(old) * a * n / (n + 1) = a ^ (n + 1) / (n + 1)
-            comp = decimal128::div(
-                &decimal128::new(decimal128::val(&mul_decimals(&comp, &a)) * index), // comp * a * index
-                index + 1,
+            comp = bigdecimal::div_by_u64(
+                bigdecimal::mul_by_u64(bigdecimal::mul(comp, a), index), // comp * a * index
+                index + 1
             );
 
             index = index + 1;
@@ -348,19 +352,11 @@ module dex_utils::dex_utils {
         (res, a_neg)
     }
 
-    fun mul_decimals(decimal_0: &Decimal128, decimal_1: &Decimal128): Decimal128 {
-        let one = decimal128::val(&decimal128::one());
-        let val_mul = decimal128::val(decimal_0) * decimal128::val(decimal_1);
-        decimal128::new(val_mul / one)
-    }
-
-    fun get_price_impact(price_before: Decimal128, price_after: Decimal128): Decimal128 {
-        let val_before = decimal128::val(&price_before);
-        let val_after = decimal128::val(&price_after);
-        if (val_before > val_after) {
-            decimal128::from_ratio(val_before - val_after, val_before)
+    fun get_price_impact(price_before: BigDecimal, price_after: BigDecimal): BigDecimal {
+        if (bigdecimal::gt(price_before, price_after)) {
+            bigdecimal::div(bigdecimal::sub(price_before, price_after), price_before)
         } else {
-            decimal128::from_ratio(val_after - val_before, val_after)
+            bigdecimal::div(bigdecimal::sub(price_after, price_before), price_after)
         }
     }
 }
