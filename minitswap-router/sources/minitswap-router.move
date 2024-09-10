@@ -99,7 +99,7 @@ module router::minitswap_router {
                 stableswap_pool,
             );
 
-        let (minitswap_return_amount, _) =
+        let (net_minitswap_return_amount, _) =
             simulation(
                 &mut simulation_cache,
                 option::none(),
@@ -110,7 +110,7 @@ module router::minitswap_router {
 
         let pool_addr =
             option::some(object::object_address(option::borrow(&stableswap_pool)));
-        let (stableswap_return_amount, _) =
+        let (stableswap_return_amount, stableswap_fee_amount) =
             simulation(
                 &mut simulation_cache,
                 pool_addr,
@@ -123,9 +123,9 @@ module router::minitswap_router {
             op_bridge_offer_amount,
             op_bridge_return_amount: op_bridge_offer_amount,
             minitswap_offer_amount,
-            minitswap_return_amount,
+            net_minitswap_return_amount,
             stableswap_offer_amount,
-            stableswap_return_amount,
+            net_stableswap_return_amount: stableswap_return_amount - stableswap_fee_amount,
         }
     }
 
@@ -196,7 +196,7 @@ module router::minitswap_router {
                     Key { route: STABLESWAP, amount: stableswap_offer_amount },
                 )
             };
-        total_return_amount = total_return_amount + stableswap_return_amount;
+        total_return_amount = total_return_amount + stableswap_return_amount - stableswap_fee_amount;
 
         if (op_bridge_offer_amount != 0) {
             vector::push_back(
@@ -204,7 +204,7 @@ module router::minitswap_router {
                 SwapSimulationResponseWithFee {
                     route_type: string::utf8(b"OP bridge"),
                     offer_amount: op_bridge_offer_amount,
-                    return_amount: op_bridge_offer_amount,
+                    net_return_amount: op_bridge_offer_amount,
                     fee_metadata: offer_asset_metadata,
                     fee_amount: 0,
                     fee_rate: bigdecimal::zero(),
@@ -218,7 +218,7 @@ module router::minitswap_router {
                 SwapSimulationResponseWithFee {
                     route_type: string::utf8(b"Minitswap"),
                     offer_amount: minitswap_offer_amount,
-                    return_amount: minitswap_return_amount,
+                    net_return_amount: minitswap_return_amount,
                     fee_metadata: return_asset_metadata,
                     fee_amount: minitswap_fee_amount,
                     fee_rate: bigdecimal::from_ratio_u64(
@@ -234,7 +234,7 @@ module router::minitswap_router {
                 SwapSimulationResponseWithFee {
                     route_type: string::utf8(b"Stableswap"),
                     offer_amount: stableswap_offer_amount,
-                    return_amount: stableswap_return_amount,
+                    net_return_amount: stableswap_return_amount - stableswap_fee_amount,
                     fee_metadata: return_asset_metadata,
                     fee_amount: stableswap_fee_amount,
                     fee_rate: bigdecimal::from_ratio_u64(
@@ -247,19 +247,19 @@ module router::minitswap_router {
         res
     }
 
-    struct SwapSimulationResponse {
+    struct SwapSimulationResponse has drop {
         op_bridge_offer_amount: u64,
         op_bridge_return_amount: u64,
         minitswap_offer_amount: u64,
-        minitswap_return_amount: u64,
+        net_minitswap_return_amount: u64,
         stableswap_offer_amount: u64,
-        stableswap_return_amount: u64,
+        net_stableswap_return_amount: u64,
     }
 
-    struct SwapSimulationResponseWithFee {
+    struct SwapSimulationResponseWithFee has drop{
         route_type: String,
         offer_amount: u64,
-        return_amount: u64,
+        net_return_amount: u64,
         fee_metadata: Object<Metadata>,
         fee_amount: u64,
         fee_rate: bigdecimal::BigDecimal,
@@ -557,27 +557,22 @@ module router::minitswap_router {
 
         let minitswap_return_amount =
             if (former_minitswap_amount != 0 && virtual_pool_exists) {
-                let (return_amount, _) =
-                    simulation(
-                        simulation_cache,
-                        option::none(),
-                        offer_asset_metadata,
-                        return_asset_metadata,
-                        Key {
-                            route: MINITSWAP,
-                            amount: former_minitswap_amount + offer_amount
-                        },
-                    );
+                let SimulationRes { return_amount, fee: _} = simple_map::borrow(
+                    simulation_cache,
+                    &Key { route: MINITSWAP, amount: former_minitswap_amount });
+                let former_return_amount = *return_amount;
+                let (return_amount, _) = simulation(
+                    simulation_cache,
+                    option::none(),
+                    offer_asset_metadata,
+                    return_asset_metadata,
+                    Key { route: MINITSWAP, amount: former_minitswap_amount + offer_amount }
+                );
 
-                if (return_amount == 0) { // in this case, can't swap with minitswap (if ibc_op_init_pool_amount - return_amount < pool_size, return amount will be zero)
+                if (return_amount == 0) {
                     0
                 } else {
-                    let SimulationRes { return_amount: former_return_amount, fee: _ } =
-                        simple_map::borrow(
-                            simulation_cache,
-                            &Key { route: MINITSWAP, amount: former_minitswap_amount },
-                        );
-                    return_amount - *former_return_amount
+                    return_amount - former_return_amount
                 }
             } else { 0 };
 
@@ -599,7 +594,7 @@ module router::minitswap_router {
                 let SimulationRes { return_amount: former_return_amount, fee: _ } =
                     simple_map::borrow(
                         simulation_cache,
-                        &Key { route: MINITSWAP, amount: former_minitswap_amount },
+                        &Key { route: STABLESWAP, amount: former_stableswap_amount + offer_amount },
                     );
                 return_amount - *former_return_amount
             } else { 0 };
@@ -649,19 +644,19 @@ module router::minitswap_router {
                     SimulationRes { return_amount: key.amount, fee: 0, },
                 );
             } else if (key.route == MINITSWAP) {
-                let (return_amount, fee_amount) =
+                let (return_amount, fee) =
                     minitswap::safe_swap_simulation(
                         offer_asset_metadata, return_asset_metadata, key.amount
                     );
                 simple_map::add(
                     simulation_cache,
                     key,
-                    SimulationRes { return_amount, fee: fee_amount, },
+                    SimulationRes { return_amount, fee, },
                 );
             } else if (key.route == STABLESWAP) {
                 let pool_addr = *option::borrow(&pool_addr);
                 let pool_obj = object::address_to_object<stableswap::Pool>(pool_addr);
-                let (return_amount_before_fee, fee_amount) =
+                let (return_amount, fee) =
                     stableswap::swap_simulation(
                         pool_obj,
                         offer_asset_metadata,
@@ -673,8 +668,8 @@ module router::minitswap_router {
                     simulation_cache,
                     key,
                     SimulationRes {
-                        return_amount: return_amount_before_fee,
-                        fee: fee_amount
+                        return_amount,
+                        fee
                     },
                 );
             };
@@ -1099,9 +1094,9 @@ module router::minitswap_router {
             op_bridge_offer_amount: _,
             op_bridge_return_amount: _,
             minitswap_offer_amount: _,
-            minitswap_return_amount: _,
+            net_minitswap_return_amount: _,
             stableswap_offer_amount,
-            stableswap_return_amount,
+            net_stableswap_return_amount,
         } =
             swap_simulation(
                 init_metadata,
@@ -1137,8 +1132,8 @@ module router::minitswap_router {
 
         let actual_return_amount = balance_after - balance_before;
 
-        assert!(stableswap_return_amount == stableswap_return_amount_from_stableswap, 1);
-        assert!(stableswap_return_amount == actual_return_amount, 1);
+        assert!(net_stableswap_return_amount == stableswap_return_amount_from_stableswap, 1);
+        assert!(net_stableswap_return_amount == actual_return_amount, 1);
     }
 
     #[test(chain = @0x1, router = @router)]
@@ -1227,9 +1222,9 @@ module router::minitswap_router {
             op_bridge_offer_amount,
             op_bridge_return_amount,
             minitswap_offer_amount,
-            minitswap_return_amount,
+            net_minitswap_return_amount,
             stableswap_offer_amount,
-            stableswap_return_amount,
+            net_stableswap_return_amount,
         } =
             swap_simulation(
                 init_metadata,
@@ -1239,13 +1234,13 @@ module router::minitswap_router {
                 option::none(),
                 option::some(3),
             );
-
+            
         assert!(op_bridge_offer_amount == 300000, 0);
         assert!(minitswap_offer_amount == 300000, 1);
         assert!(stableswap_offer_amount == 300000, 2);
         assert!(op_bridge_return_amount == 300000, 3);
-        assert!(minitswap_return_amount == 300276, 4);
-        assert!(stableswap_return_amount == 300823, 5);
+        assert!(net_minitswap_return_amount == 300276, 4);
+        assert!(net_stableswap_return_amount == 300823, 5);
     }
 
     #[test(chain = @0x1, router = @router)]
@@ -1284,9 +1279,9 @@ module router::minitswap_router {
             op_bridge_offer_amount,
             op_bridge_return_amount,
             minitswap_offer_amount,
-            minitswap_return_amount,
+            net_minitswap_return_amount,
             stableswap_offer_amount,
-            stableswap_return_amount,
+            net_stableswap_return_amount,
         } =
             swap_simulation(
                 ibc_op_init_1_metadata,
@@ -1296,12 +1291,11 @@ module router::minitswap_router {
                 option::none(),
                 option::some(3),
             );
-
         assert!(op_bridge_offer_amount == 0, 0);
         assert!(minitswap_offer_amount == 300000, 1);
         assert!(stableswap_offer_amount == 600000, 2);
         assert!(op_bridge_return_amount == 0, 3);
-        assert!(minitswap_return_amount == 297906, 4);
-        assert!(stableswap_return_amount == 597153, 5);
+        assert!(net_minitswap_return_amount == 297906, 4);
+        assert!(net_stableswap_return_amount == 597153, 5);
     }
 }
