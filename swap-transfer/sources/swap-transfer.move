@@ -7,7 +7,6 @@ module swap_transfer::swap_transfer {
     use std::option::{Self, Option};
 
     use initia_std::address::to_sdk;
-    use initia_std::base64;
     use initia_std::block;
     use initia_std::coin;
     use initia_std::cosmos;
@@ -18,16 +17,69 @@ module swap_transfer::swap_transfer {
     use initia_std::minitswap;
     use initia_std::object::{Self, Object};
     use initia_std::primary_fungible_store;
-    use initia_std::simple_json;
-    use initia_std::string_utils::to_string;
 
     use dex_utils::dex_utils;
 
+    struct MsgInitiateTokenDeposit has drop, copy, store {
+        _type_: String,
+        sender: String,
+        bridge_id: u64,
+        to: String,
+        data: vector<u8>,
+        amount: Coin
+    }
+    
+    struct Coin has drop, copy, store {
+        denom: String,
+        amount: u64,
+    }
+    
     // Errors
     
     const EMIN_RETURN: u64 = 1;
 
     const EUNKNOWN_TYPE: u64 = 2;
+
+    const DEX: u8 = 0;
+    const MINITSWAP: u8 = 1;
+
+    #[view]
+    public fun mixed_route_swap_simulation(offer_asset_metadata: Object<Metadata>, routes: vector<vector<vector<u8>>>, offer_asset_amount: u64): u64 {
+        let len = vector::length(&routes);
+        let index = 0;
+        while(index < len) {
+            let route = vector::borrow(&routes, index);
+            let type = from_bcs::to_u8(*vector::borrow(route, 0));
+
+            assert!(type < 2, error::invalid_argument(EUNKNOWN_TYPE));
+            (offer_asset_metadata, offer_asset_amount) = if (type == DEX) {
+                let config_addr = from_bcs::to_address(*vector::borrow(route, 1));
+                let pair = object::address_to_object<Config>(config_addr);
+                let (metadata_a, metadata_b) = dex::pool_metadata(pair);
+                let return_asset_metadata = if (offer_asset_metadata == metadata_a) {
+                    metadata_b
+                } else {
+                    metadata_a
+                };
+                (
+                    return_asset_metadata,
+                    dex::get_swap_simulation(pair, offer_asset_metadata, offer_asset_amount),
+                )
+            } else { // else if (type == MINITSWAP) {
+                let return_asset_metadata_address = from_bcs::to_address(*vector::borrow(route, 1));
+                let return_asset_metadata = object::address_to_object<Metadata>(return_asset_metadata_address);
+                let (return_amount, _) = minitswap::swap_simulation(offer_asset_metadata, return_asset_metadata, offer_asset_amount);
+                (
+                    return_asset_metadata,
+                    return_amount
+                )
+            };
+            index = index + 1;
+        };
+
+        let return_asset_amount = offer_asset_amount;
+        return_asset_amount
+    }
 
     /// swap on dex and ibc transfer to
     public entry fun swap_transfer(
@@ -153,6 +205,21 @@ module swap_transfer::swap_transfer {
         deposit_fa(account, return_asset, bridge_id, to, data);
     }
 
+    public entry fun mixed_route_swap_to(
+        account: &signer,
+        offer_asset_metadata: Object<Metadata>,
+        routes: vector<vector<vector<u8>>>,
+        offer_asset_amount: u64,
+        min_return_amount: Option<u64>,
+        to: address,
+    ) {
+        let offer_asset = primary_fungible_store::withdraw(account, offer_asset_metadata, offer_asset_amount);
+        let return_asset = mixed_swap(routes, offer_asset);
+        assert_min_amount(min_return_amount, &return_asset);
+
+        primary_fungible_store::deposit(to, return_asset);
+    }
+
     /// routes: vector[
     ///     path: u8, // 0 for dex, 1 for minitswap
     ///     ...args: vector<any>,
@@ -165,11 +232,11 @@ module swap_transfer::swap_transfer {
             let type = from_bcs::to_u8(*vector::borrow(route, 0));
 
             assert!(type < 2, error::invalid_argument(EUNKNOWN_TYPE));
-            offer_asset = if (type == 0) {
+            offer_asset = if (type == DEX) {
                 let config_addr = from_bcs::to_address(*vector::borrow(route, 1));
                 let pair = object::address_to_object<Config>(config_addr);
                 dex::swap(pair, offer_asset)
-            } else { // else if (type == 1) {
+            } else { // else if (type == MINITSWAP) {
                 let return_asset_metadata_address = from_bcs::to_address(*vector::borrow(route, 1));
                 let return_asset_metadata = object::address_to_object<Metadata>(return_asset_metadata_address);
                 minitswap::swap_internal(offer_asset, return_asset_metadata)
@@ -225,20 +292,17 @@ module swap_transfer::swap_transfer {
         amount: u64,
         data: vector<u8>
     ) {
-        let obj = simple_json::empty();
-        simple_json::set_object(&mut obj, option::none<String>());
-        simple_json::increase_depth(&mut obj);
-        simple_json::set_string(&mut obj, option::some(string::utf8(b"@type")), string::utf8(b"/opinit.ophost.v1.MsgInitiateTokenDeposit"));
-        simple_json::set_string(&mut obj, option::some(string::utf8(b"sender")), to_sdk(signer::address_of(sender)));
-        simple_json::set_string(&mut obj, option::some(string::utf8(b"bridge_id")), to_string(&bridge_id));
-        simple_json::set_string(&mut obj, option::some(string::utf8(b"to")), to_sdk(to));
-        simple_json::set_string(&mut obj, option::some(string::utf8(b"data")), base64::to_string(data));
-        simple_json::set_object(&mut obj, option::some(string::utf8(b"amount")));
-        simple_json::increase_depth(&mut obj);
-        simple_json::set_string(&mut obj, option::some(string::utf8(b"denom")), coin::metadata_to_denom(metadata));
-        simple_json::set_string(&mut obj, option::some(string::utf8(b"amount")), to_string(&amount));
-
-        let req = json::stringify(simple_json::to_json_object(&obj));
-        cosmos::stargate(sender, req);
+        let msg = MsgInitiateTokenDeposit {
+            _type_: string::utf8(b"/opinit.ophost.v1.MsgInitiateTokenDeposit"),
+            sender: to_sdk(signer::address_of(sender)),
+            bridge_id,
+            to: to_sdk(to),
+            data,
+            amount: Coin {
+                denom: coin::metadata_to_denom(metadata),
+                amount,
+            }
+        };
+        cosmos::stargate(sender, json::marshal(&msg));
     }
 }

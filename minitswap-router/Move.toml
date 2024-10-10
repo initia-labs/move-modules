@@ -1,11 +1,11 @@
 [package]
-name = "dex_utils"
+name = "minitswap-router"
 version = "0.0.1"
 
 [addresses]
 std = "0x1"
 initia_std = "0x1"
-dex_utils = "0x42cd8467b1c86e59bf319e5664a09b6b5840bb3fac64f5ce690b5041c530565a"
+router = "0x42cd8467b1c86e59bf319e5664a09b6b5840bb3fac64f5ce690b5041c530565a"
 
 [dependencies]
 InitiaStdlib = { git = "https://github.com/initia-labs/movevm.git", subdir = "precompile/modules/initia_stdlib", rev = "b6320db6def0aa9438abdb0e7f3f5bda711c8081" }
