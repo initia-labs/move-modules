@@ -46,7 +46,7 @@ module nft_transfer::nft_transfer {
         revision_height: u64,
         timeout_timestamp: u64,
         memo: String
-    ) {
+    ) acquires AckStore {
         // add callback
         let callback_id =
             store_recover_address(sender, recover_address, collection, token_ids);

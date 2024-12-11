@@ -5,7 +5,7 @@ version = "0.0.1"
 [addresses]
 std = "0x1"
 initia_std = "0x1"
-nft_transfer = "0x42cd8467b1c86e59bf319e5664a09b6b5840bb3fac64f5ce690b5041c530565a"
+nft_transfer = "0xfa5f07319724580ef16dcef6ce4d3b0bd0348e48"
 
 [dependencies]
 InitiaStdlib = { git = "https://github.com/initia-labs/move-natives.git", subdir = "initia_stdlib", rev = "main" }
