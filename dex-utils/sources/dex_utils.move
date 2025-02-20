@@ -10,6 +10,7 @@ module dex_utils::dex_utils {
     use initia_std::bigdecimal::{Self, BigDecimal};
     use initia_std::biguint;
     use initia_std::dex::{Self, Config};
+    use initia_std::stableswap::{Self, Pool};
     use initia_std::object::{Self, Object};
     use initia_std::fungible_asset::{Self, FungibleAsset, Metadata};
 
@@ -160,6 +161,35 @@ module dex_utils::dex_utils {
     }
 
     // entry functions
+
+    public entry fun stableswap_provide_stake(
+        account: &signer,
+        pool_obj: Object<Pool>,
+        coin_amounts: vector<u64>,
+        min_liquidity: Option<u64>,
+        validator: String,
+    ) {
+        let coins: vector<FungibleAsset> = vector[];
+        let (coin_metadata,_,_,_) = stableswap::pool_info(pool_obj);
+
+        let i = 0;
+        let n = vector::length(&coin_amounts);
+        while (i < n) {
+            let metadata = *vector::borrow(&coin_metadata, i);
+            let amount = *vector::borrow(&coin_amounts, i);
+            vector::push_back(
+                &mut coins,
+                coin::withdraw(account, metadata, amount)
+            );
+            i = i + 1;
+        };
+
+        let liquidity_token = stableswap::provide_liquidity(pool_obj, coins, min_liquidity);
+        let liquidity_amount = fungible_asset::amount(&liquidity_token);
+
+        coin::deposit(signer::address_of(account), liquidity_token);
+        cosmos::delegate(account, validator, object::convert<Pool, Metadata>(pool_obj), liquidity_amount);
+    }
 
     public entry fun provide_stake(
         account: &signer,
