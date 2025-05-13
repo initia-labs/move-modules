@@ -1,0 +1,12 @@
+[package]
+name = "vip_utils"
+version = "0.0.1"
+
+[addresses]
+std = "0x1"
+initia_std = "0x1"
+vip_utils = "0x42cd8467b1c86e59bf319e5664a09b6b5840bb3fac64f5ce690b5041c530565a"
+
+[dependencies]
+InitiaStdlib = { git = "https://github.com/initia-labs/move-natives.git", subdir = "initia_stdlib", rev = "main" }
+vip = { git = "https://github.com/initia-labs/vip-contract.git", subdir = "", rev = "main" }
