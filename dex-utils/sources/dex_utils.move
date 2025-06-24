@@ -14,6 +14,8 @@ module dex_utils::dex_utils {
     use initia_std::object::{Self, Object};
     use initia_std::fungible_asset::{Self, FungibleAsset, Metadata};
 
+    use vip::lock_staking;
+
     /// Errors
 
     const EMIN_RETURN: u64 = 1;
@@ -52,9 +54,7 @@ module dex_utils::dex_utils {
 
     #[view]
     public fun provide_liquidity_cal(
-        pair: Object<Config>,
-        coin_a_amount_in: u64,
-        coin_b_amount_in: u64
+        pair: Object<Config>, coin_a_amount_in: u64, coin_b_amount_in: u64
     ): u64 {
         let total_share = option::extract(&mut fungible_asset::supply(pair));
         let pool_info = dex::get_pool_info(pair);
@@ -157,10 +157,57 @@ module dex_utils::dex_utils {
     }
 
     #[view]
-    public fun get_swap_simulation(
+    public fun unproportional_provide_liquidity_cal(
         pair: Object<Config>,
-        offer_asset_metadata: Object<Metadata>,
-        offer_amount: u64
+        coin_a_amount_in: u64,
+        coin_b_amount_in: u64
+    ): (u64, BigDecimal) {
+        // calculate the proportional coin amount
+        let (coin_a_proportional_amount_in, coin_b_proportional_amount_in) =
+            get_exact_provide_amount(pair, coin_a_amount_in, coin_b_amount_in);
+
+        let liquidity_amount = 0;
+        let price_impact = bigdecimal::zero();
+        let (coin_a_metadata, coin_b_metadata) = dex::pool_metadata(pair);
+
+        // get liquidity token amount from proportional provide
+        if (coin_a_proportional_amount_in + coin_b_proportional_amount_in != 0) {
+            liquidity_amount =
+                liquidity_amount
+                    + provide_liquidity_cal(
+                        pair,
+                        coin_a_proportional_amount_in,
+                        coin_b_proportional_amount_in
+                    );
+            coin_a_amount_in = coin_a_amount_in - coin_a_proportional_amount_in;
+            coin_b_amount_in = coin_b_amount_in - coin_b_proportional_amount_in;
+        };
+
+        // get liquidity token amount and price impact from single asset provide
+        if (coin_a_amount_in != 0) {
+            let (liquidity_amount_, price_impact_) =
+                single_asset_provide_liquidity_cal(
+                    pair, coin_a_metadata, coin_a_amount_in
+                );
+            liquidity_amount = liquidity_amount + liquidity_amount_;
+            price_impact = price_impact_;
+        };
+
+        if (coin_b_amount_in != 0) {
+            let (liquidity_amount_, price_impact_) =
+                single_asset_provide_liquidity_cal(
+                    pair, coin_b_metadata, coin_a_amount_in
+                );
+            liquidity_amount = liquidity_amount + liquidity_amount_;
+            price_impact = price_impact_;
+        };
+
+        (liquidity_amount, price_impact)
+    }
+
+    #[view]
+    public fun get_swap_simulation(
+        pair: Object<Config>, offer_asset_metadata: Object<Metadata>, offer_amount: u64
     ): (u64, BigDecimal) {
         let (coin_a_pool, coin_b_pool, coin_a_weight, coin_b_weight, swap_fee_rate) =
             dex::pool_info(pair, true);
@@ -396,6 +443,86 @@ module dex_utils::dex_utils {
         );
     }
 
+    public entry fun unproportional_provide(
+        account: &signer,
+        pair: Object<Config>,
+        coin_a_amount_in: u64,
+        coin_b_amount_in: u64,
+        min_liquidity: Option<u64>
+    ) {
+        let liquidity_token =
+            unproportional_provide_internal(
+                account,
+                pair,
+                coin_a_amount_in,
+                coin_b_amount_in,
+                min_liquidity
+            );
+
+        coin::deposit(signer::address_of(account), liquidity_token);
+    }
+
+    public entry fun unproportional_provide_stake(
+        account: &signer,
+        pair: Object<Config>,
+        coin_a_amount_in: u64,
+        coin_b_amount_in: u64,
+        min_liquidity: Option<u64>,
+        validator: String
+    ) {
+        let liquidity_token =
+            unproportional_provide_internal(
+                account,
+                pair,
+                coin_a_amount_in,
+                coin_b_amount_in,
+                min_liquidity
+            );
+
+        let provide_amount = fungible_asset::amount(&liquidity_token);
+
+        coin::deposit(signer::address_of(account), liquidity_token);
+
+        cosmos::delegate(
+            account,
+            validator,
+            object::convert<Config, Metadata>(pair),
+            provide_amount
+        );
+    }
+
+    public entry fun unproportional_provide_lock_stake(
+        account: &signer,
+        pair: Object<Config>,
+        coin_a_amount_in: u64,
+        coin_b_amount_in: u64,
+        min_liquidity: Option<u64>,
+        release_time: u64,
+        validator: String
+    ) {
+        let liquidity_token =
+            unproportional_provide_internal(
+                account,
+                pair,
+                coin_a_amount_in,
+                coin_b_amount_in,
+                min_liquidity
+            );
+
+        let provide_amount = fungible_asset::amount(&liquidity_token);
+        let liquidity_token_metadata = fungible_asset::metadata_from_asset(&liquidity_token);
+
+        coin::deposit(signer::address_of(account), liquidity_token);
+
+        lock_staking::delegate(
+            account,
+            liquidity_token_metadata,
+            provide_amount,
+            release_time,
+            validator
+        );
+    }
+
     public entry fun route_swap(
         account: &signer,
         offer_asset_metadata: Object<Metadata>,
@@ -435,6 +562,66 @@ module dex_utils::dex_utils {
     }
 
     // util functions
+
+    fun unproportional_provide_internal(
+        account: &signer,
+        pair: Object<Config>,
+        coin_a_amount_in: u64,
+        coin_b_amount_in: u64,
+        min_liquidity: Option<u64>
+    ): FungibleAsset {
+        let (metadata_a, metadata_b) = dex::pool_metadata(pair);
+        let pair_metadata = object::convert<Config, Metadata>(pair);
+
+        // withdraw coins
+        let coin_a = coin::withdraw(account, metadata_a, coin_a_amount_in);
+        let coin_b = coin::withdraw(account, metadata_b, coin_b_amount_in);
+
+        // calculate the proportional coin amount
+        let (coin_a_proportional_amount_in, coin_b_proportional_amount_in) =
+            get_exact_provide_amount(pair, coin_a_amount_in, coin_b_amount_in);
+
+        // provide proportional
+        let liquidity_token = fungible_asset::zero(pair_metadata);
+
+        if (coin_a_proportional_amount_in + coin_b_proportional_amount_in != 0) {
+            let liquidity_token_ =
+                dex::provide_liquidity(
+                    pair,
+                    fungible_asset::extract(&mut coin_a, coin_a_proportional_amount_in),
+                    fungible_asset::extract(&mut coin_b, coin_b_proportional_amount_in),
+                    option::none()
+                );
+
+            fungible_asset::merge(&mut liquidity_token, liquidity_token_);
+        };
+
+        // single asset provide
+        if (fungible_asset::amount(&coin_a) == 0) {
+            fungible_asset::destroy_zero(coin_a);
+        } else {
+            let liquidity_token_ =
+                dex::single_asset_provide_liquidity(pair, coin_a, option::none());
+            fungible_asset::merge(&mut liquidity_token, liquidity_token_);
+        };
+
+        if (fungible_asset::amount(&coin_b) == 0) {
+            fungible_asset::destroy_zero(coin_b);
+        } else {
+            let liquidity_token_ =
+                dex::single_asset_provide_liquidity(pair, coin_b, option::none());
+            fungible_asset::merge(&mut liquidity_token, liquidity_token_);
+        };
+
+        // check min return
+        assert!(
+            *option::borrow_with_default(&min_liquidity, &0)
+                < fungible_asset::amount(&liquidity_token),
+            error::invalid_state(EMIN_RETURN)
+        );
+
+        liquidity_token
+    }
 
     fun get_exact_provide_amount(
         pair: Object<Config>, coin_a_amount_in: u64, coin_b_amount_in: u64
