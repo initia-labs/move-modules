@@ -194,7 +194,7 @@ module dex_utils::dex_utils {
         if (coin_b_amount_in != 0) {
             let (liquidity_amount_, price_impact_) =
                 single_asset_provide_liquidity_cal(
-                    pair, coin_b_metadata, coin_a_amount_in
+                    pair, coin_b_metadata, coin_b_amount_in
                 );
             liquidity_amount = liquidity_amount + liquidity_amount_;
             price_impact = price_impact_;
