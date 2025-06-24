@@ -158,9 +158,7 @@ module dex_utils::dex_utils {
 
     #[view]
     public fun unproportional_provide_liquidity_cal(
-        pair: Object<Config>,
-        coin_a_amount_in: u64,
-        coin_b_amount_in: u64
+        pair: Object<Config>, coin_a_amount_in: u64, coin_b_amount_in: u64
     ): (u64, BigDecimal) {
         // calculate the proportional coin amount
         let (coin_a_proportional_amount_in, coin_b_proportional_amount_in) =
@@ -510,7 +508,8 @@ module dex_utils::dex_utils {
             );
 
         let provide_amount = fungible_asset::amount(&liquidity_token);
-        let liquidity_token_metadata = fungible_asset::metadata_from_asset(&liquidity_token);
+        let liquidity_token_metadata =
+            fungible_asset::metadata_from_asset(&liquidity_token);
 
         coin::deposit(signer::address_of(account), liquidity_token);
 
