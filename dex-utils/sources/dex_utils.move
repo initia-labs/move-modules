@@ -87,73 +87,23 @@ module dex_utils::dex_utils {
         let (coin_a_amount, coin_b_amount, coin_a_weight, coin_b_weight, swap_fee_rate) =
             dex::pool_info(pair, false);
         let (metadata_a, metadata_b) = dex::pool_metadata(pair);
-        let price_before =
-            get_spot_price(
-                coin_a_amount,
-                coin_b_amount,
-                coin_a_weight,
-                coin_b_weight
-            );
 
         let is_coin_b = metadata_b == offer_asset_metadata;
         let is_coin_a = metadata_a == offer_asset_metadata;
         assert!(is_coin_b || is_coin_a, error::invalid_argument(EINVALID_TOKEN));
 
         let total_share = option::extract(&mut fungible_asset::supply(pair));
-        assert!(total_share != 0, error::invalid_state(1));
-        let (normalized_weight, pool_amount_in) =
-            if (is_coin_a) {
-                let normalized_weight =
-                    bigdecimal::div(
-                        coin_a_weight,
-                        bigdecimal::add(coin_a_weight, coin_b_weight)
-                    );
 
-                coin_a_amount = coin_a_amount + amount_in;
-                let pool_amount_in = coin_a_amount;
-                (normalized_weight, pool_amount_in)
-            } else {
-                let normalized_weight =
-                    bigdecimal::div(
-                        coin_b_weight,
-                        bigdecimal::add(coin_a_weight, coin_b_weight)
-                    );
-
-                coin_b_amount = coin_b_amount + amount_in;
-                let pool_amount_in = coin_b_amount;
-                (normalized_weight, pool_amount_in)
-            };
-        let price_after =
-            get_spot_price(
-                coin_a_amount,
-                coin_b_amount,
-                coin_a_weight,
-                coin_b_weight
-            );
-
-        // compute fee amount with the assumption that we will swap (1 - normalized_weight) of amount_in
-        let adjusted_swap_amount =
-            bigdecimal::mul_by_u128_truncate(
-                bigdecimal::sub(bigdecimal::one(), normalized_weight),
-                (amount_in as u128)
-            );
-        let fee_amount =
-            bigdecimal::mul_by_u128_truncate(swap_fee_rate, adjusted_swap_amount);
-
-        // actual amount in after deducting fee amount
-        let adjusted_amount_in = amount_in - (fee_amount as u64);
-
-        // calculate new total share and new liquidity
-        let base =
-            bigdecimal::from_ratio_u128(
-                (adjusted_amount_in + (pool_amount_in as u64) as u128),
-                (pool_amount_in as u128)
-            );
-        let pool_ratio = pow(base, normalized_weight);
-        let new_total_share = bigdecimal::mul_by_u128_truncate(pool_ratio, total_share);
-
-        ((new_total_share - total_share as u64),
-        get_price_impact(price_before, price_after))
+        return single_asset_provide_liquidity_cal_internal(
+            coin_a_amount,
+            coin_b_amount,
+            coin_a_weight,
+            coin_b_weight,
+            swap_fee_rate,
+            total_share,
+            is_coin_a,
+            amount_in
+        )
     }
 
     #[view]
@@ -182,20 +132,33 @@ module dex_utils::dex_utils {
         };
 
         // get liquidity token amount and price impact from single asset provide
-        if (coin_a_amount_in != 0) {
-            let (liquidity_amount_, price_impact_) =
-                single_asset_provide_liquidity_cal(
-                    pair, coin_a_metadata, coin_a_amount_in
-                );
-            liquidity_amount = liquidity_amount + liquidity_amount_;
-            price_impact = price_impact_;
-        };
+        let (is_coin_a, single_asset_amount_in) =
+            if (coin_a_amount_in != 0) {
+                (true, coin_a_amount_in)
+            } else if (coin_b_amount_in != 0) {
+                (false, coin_b_amount_in)
+            } else {
+                (true, 0)
+            };
 
-        if (coin_b_amount_in != 0) {
+        if (single_asset_amount_in != 0) {
+            let (
+                coin_a_amount, coin_b_amount, coin_a_weight, coin_b_weight, swap_fee_rate
+            ) = dex::pool_info(pair, false);
+
+            let total_share = option::extract(&mut fungible_asset::supply(pair));
             let (liquidity_amount_, price_impact_) =
-                single_asset_provide_liquidity_cal(
-                    pair, coin_b_metadata, coin_b_amount_in
+                single_asset_provide_liquidity_cal_internal(
+                    coin_a_amount + coin_a_proportional_amount_in,
+                    coin_b_amount + coin_b_proportional_amount_in,
+                    coin_a_weight,
+                    coin_b_weight,
+                    swap_fee_rate,
+                    total_share + (liquidity_amount as u128),
+                    is_coin_a,
+                    single_asset_amount_in
                 );
+
             liquidity_amount = liquidity_amount + liquidity_amount_;
             price_impact = price_impact_;
         };
@@ -743,6 +706,80 @@ module dex_utils::dex_utils {
         } else {
             bigdecimal::div(bigdecimal::sub(price_after, price_before), price_after)
         }
+    }
+
+    fun single_asset_provide_liquidity_cal_internal(
+        coin_a_amount: u64,
+        coin_b_amount: u64,
+        coin_a_weight: BigDecimal,
+        coin_b_weight: BigDecimal,
+        swap_fee_rate: BigDecimal,
+        total_share: u128,
+        is_coin_a: bool,
+        amount_in: u64
+    ): (u64, BigDecimal) {
+        let price_before =
+            get_spot_price(
+                coin_a_amount,
+                coin_b_amount,
+                coin_a_weight,
+                coin_b_weight
+            );
+
+        assert!(total_share != 0, error::invalid_state(1));
+        let (normalized_weight, pool_amount_in) =
+            if (is_coin_a) {
+                let normalized_weight =
+                    bigdecimal::div(
+                        coin_a_weight,
+                        bigdecimal::add(coin_a_weight, coin_b_weight)
+                    );
+
+                coin_a_amount = coin_a_amount + amount_in;
+                let pool_amount_in = coin_a_amount;
+                (normalized_weight, pool_amount_in)
+            } else {
+                let normalized_weight =
+                    bigdecimal::div(
+                        coin_b_weight,
+                        bigdecimal::add(coin_a_weight, coin_b_weight)
+                    );
+
+                coin_b_amount = coin_b_amount + amount_in;
+                let pool_amount_in = coin_b_amount;
+                (normalized_weight, pool_amount_in)
+            };
+        let price_after =
+            get_spot_price(
+                coin_a_amount,
+                coin_b_amount,
+                coin_a_weight,
+                coin_b_weight
+            );
+
+        // compute fee amount with the assumption that we will swap (1 - normalized_weight) of amount_in
+        let adjusted_swap_amount =
+            bigdecimal::mul_by_u128_truncate(
+                bigdecimal::sub(bigdecimal::one(), normalized_weight),
+                (amount_in as u128)
+            );
+        let fee_amount =
+            bigdecimal::mul_by_u128_truncate(swap_fee_rate, adjusted_swap_amount);
+
+        // actual amount in after deducting fee amount
+        let adjusted_amount_in = amount_in - (fee_amount as u64);
+
+        // calculate new total share and new liquidity
+        let base =
+            bigdecimal::from_ratio_u128(
+                (adjusted_amount_in + (pool_amount_in as u64) as u128),
+                (pool_amount_in as u128)
+            );
+        let pool_ratio = pow(base, normalized_weight);
+        let new_total_share = bigdecimal::mul_by_u128_truncate(pool_ratio, total_share);
+
+        ((new_total_share - total_share as u64),
+        get_price_impact(price_before, price_after))
     }
 
     fun mul_div_u128(a: u128, b: u128, c: u128): u128 {
