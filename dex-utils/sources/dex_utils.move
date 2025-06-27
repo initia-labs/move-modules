@@ -22,6 +22,8 @@ module dex_utils::dex_utils {
 
     const EINVALID_TOKEN: u64 = 2;
 
+    const EZERO_LIQUIDITY: u64 = 3;
+
     // view functions. Simulate and calculate price impact
 
     #[view]
@@ -62,6 +64,12 @@ module dex_utils::dex_utils {
         let coin_b_amount = dex::get_coin_b_amount_from_pool_info_response(&pool_info);
 
         if (total_share == 0) {
+            // if total share is 0, can not provide 0 amount
+            assert!(
+                coin_a_amount_in != 0 && coin_a_amount_in != 0,
+                error::invalid_state(EZERO_LIQUIDITY)
+            );
+
             if (coin_a_amount_in > coin_b_amount_in) {
                 coin_a_amount_in
             } else {
@@ -116,7 +124,6 @@ module dex_utils::dex_utils {
 
         let liquidity_amount = 0;
         let price_impact = bigdecimal::zero();
-        let (coin_a_metadata, coin_b_metadata) = dex::pool_metadata(pair);
 
         // get liquidity token amount from proportional provide
         if (coin_a_proportional_amount_in + coin_b_proportional_amount_in != 0) {
@@ -578,7 +585,7 @@ module dex_utils::dex_utils {
         // check min return
         assert!(
             *option::borrow_with_default(&min_liquidity, &0)
-                < fungible_asset::amount(&liquidity_token),
+                <= fungible_asset::amount(&liquidity_token),
             error::invalid_state(EMIN_RETURN)
         );
 
@@ -772,7 +779,7 @@ module dex_utils::dex_utils {
         // calculate new total share and new liquidity
         let base =
             bigdecimal::from_ratio_u128(
-                (adjusted_amount_in + (pool_amount_in as u64) as u128),
+                (adjusted_amount_in + pool_amount_in as u128),
                 (pool_amount_in as u128)
             );
         let pool_ratio = pow(base, normalized_weight);
