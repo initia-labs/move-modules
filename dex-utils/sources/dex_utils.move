@@ -66,7 +66,7 @@ module dex_utils::dex_utils {
         if (total_share == 0) {
             // if total share is 0, can not provide 0 amount
             assert!(
-                coin_a_amount_in != 0 && coin_a_amount_in != 0,
+                coin_a_amount_in != 0 && coin_b_amount_in != 0,
                 error::invalid_state(EZERO_LIQUIDITY)
             );
 
