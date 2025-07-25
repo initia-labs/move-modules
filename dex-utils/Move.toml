@@ -10,5 +10,5 @@ vip = "0xe55cc823efb411bed5eed25aca5277229a54c62ab3769005f86cc44bc0c0e5ab"
 vesting = "0xfa5f07319724580ef16dcef6ce4d3b0bd0348e48"
 
 [dependencies]
-InitiaStdlib = { git = "https://github.com/initia-labs/movevm.git", subdir = "precompile/modules/initia_stdlib", rev = "v1.0.0" }
+InitiaStdlib = { git = "https://github.com/initia-labs/movevm.git", subdir = "precompile/modules/initia_stdlib", rev = "7a8397d3c5483da9fe1e94b987a10a55c4db77ec" }
 vip = { git = "https://github.com/initia-labs/vip-contract.git", subdir = "", rev = "main" }
