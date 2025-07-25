@@ -16,7 +16,7 @@ module dex_utils::dex_utils {
 
     use vip::lock_staking;
 
-    /// Errors
+    // Errors
 
     const EMIN_RETURN: u64 = 1;
 
@@ -24,196 +24,7 @@ module dex_utils::dex_utils {
 
     const EZERO_LIQUIDITY: u64 = 3;
 
-    // view functions. Simulate and calculate price impact
-
-    #[view]
-    public fun get_route_swap_simulation(
-        offer_asset_metadata: Object<Metadata>,
-        route: vector<Object<Config>>, // path of pair
-        offer_amount: u64
-    ): (u64, vector<BigDecimal>) {
-        let price_impacts: vector<BigDecimal> = vector[];
-        let index = 0;
-        let len = vector::length(&route);
-        while (index < len) {
-            let pair = *vector::borrow(&route, index);
-            let (offer_amount_, price_impact) =
-                get_swap_simulation(pair, offer_asset_metadata, offer_amount);
-            offer_amount = offer_amount_;
-            let (metadata_a, metadata_b) = dex::pool_metadata(pair);
-            offer_asset_metadata =
-                if (offer_asset_metadata == metadata_a) {
-                    metadata_b
-                } else {
-                    metadata_a
-                };
-            vector::push_back(&mut price_impacts, price_impact);
-            index = index + 1;
-        };
-        let return_amount = offer_amount;
-        (return_amount, price_impacts)
-    }
-
-    #[view]
-    public fun provide_liquidity_cal(
-        pair: Object<Config>, coin_a_amount_in: u64, coin_b_amount_in: u64
-    ): u64 {
-        let total_share = option::extract(&mut fungible_asset::supply(pair));
-        let pool_info = dex::get_pool_info(pair);
-        let coin_a_amount = dex::get_coin_a_amount_from_pool_info_response(&pool_info);
-        let coin_b_amount = dex::get_coin_b_amount_from_pool_info_response(&pool_info);
-
-        if (total_share == 0) {
-            // if total share is 0, can not provide 0 amount
-            assert!(
-                coin_a_amount_in != 0 && coin_b_amount_in != 0,
-                error::invalid_state(EZERO_LIQUIDITY)
-            );
-
-            if (coin_a_amount_in > coin_b_amount_in) {
-                coin_a_amount_in
-            } else {
-                coin_b_amount_in
-            }
-        } else {
-            let a_share_ratio =
-                bigdecimal::from_ratio_u64(coin_a_amount_in, coin_a_amount);
-            let b_share_ratio =
-                bigdecimal::from_ratio_u64(coin_b_amount_in, coin_b_amount);
-            if (bigdecimal::gt(a_share_ratio, b_share_ratio)) {
-                (bigdecimal::mul_by_u128_truncate(b_share_ratio, total_share) as u64)
-            } else {
-                (bigdecimal::mul_by_u128_truncate(a_share_ratio, total_share) as u64)
-            }
-        }
-    }
-
-    #[view]
-    public fun single_asset_provide_liquidity_cal(
-        pair: Object<Config>, offer_asset_metadata: Object<Metadata>, amount_in: u64
-    ): (u64, BigDecimal) {
-        let (coin_a_amount, coin_b_amount, coin_a_weight, coin_b_weight, swap_fee_rate) =
-            dex::pool_info(pair, false);
-        let (metadata_a, metadata_b) = dex::pool_metadata(pair);
-
-        let is_coin_b = metadata_b == offer_asset_metadata;
-        let is_coin_a = metadata_a == offer_asset_metadata;
-        assert!(is_coin_b || is_coin_a, error::invalid_argument(EINVALID_TOKEN));
-
-        let total_share = option::extract(&mut fungible_asset::supply(pair));
-
-        return single_asset_provide_liquidity_cal_internal(
-            coin_a_amount,
-            coin_b_amount,
-            coin_a_weight,
-            coin_b_weight,
-            swap_fee_rate,
-            total_share,
-            is_coin_a,
-            amount_in
-        )
-    }
-
-    #[view]
-    public fun unproportional_provide_liquidity_cal(
-        pair: Object<Config>, coin_a_amount_in: u64, coin_b_amount_in: u64
-    ): (u64, BigDecimal) {
-        // calculate the proportional coin amount
-        let (coin_a_proportional_amount_in, coin_b_proportional_amount_in) =
-            get_exact_provide_amount(pair, coin_a_amount_in, coin_b_amount_in);
-
-        let liquidity_amount = 0;
-        let price_impact = bigdecimal::zero();
-
-        // get liquidity token amount from proportional provide
-        if (coin_a_proportional_amount_in + coin_b_proportional_amount_in != 0) {
-            liquidity_amount =
-                liquidity_amount
-                    + provide_liquidity_cal(
-                        pair,
-                        coin_a_proportional_amount_in,
-                        coin_b_proportional_amount_in
-                    );
-            coin_a_amount_in = coin_a_amount_in - coin_a_proportional_amount_in;
-            coin_b_amount_in = coin_b_amount_in - coin_b_proportional_amount_in;
-        };
-
-        // get liquidity token amount and price impact from single asset provide
-        let (is_coin_a, single_asset_amount_in) =
-            if (coin_a_amount_in != 0) {
-                (true, coin_a_amount_in)
-            } else if (coin_b_amount_in != 0) {
-                (false, coin_b_amount_in)
-            } else {
-                (true, 0)
-            };
-
-        if (single_asset_amount_in != 0) {
-            let (
-                coin_a_amount, coin_b_amount, coin_a_weight, coin_b_weight, swap_fee_rate
-            ) = dex::pool_info(pair, false);
-
-            let total_share = option::extract(&mut fungible_asset::supply(pair));
-            let (liquidity_amount_, price_impact_) =
-                single_asset_provide_liquidity_cal_internal(
-                    coin_a_amount + coin_a_proportional_amount_in,
-                    coin_b_amount + coin_b_proportional_amount_in,
-                    coin_a_weight,
-                    coin_b_weight,
-                    swap_fee_rate,
-                    total_share + (liquidity_amount as u128),
-                    is_coin_a,
-                    single_asset_amount_in
-                );
-
-            liquidity_amount = liquidity_amount + liquidity_amount_;
-            price_impact = price_impact_;
-        };
-
-        (liquidity_amount, price_impact)
-    }
-
-    #[view]
-    public fun get_swap_simulation(
-        pair: Object<Config>, offer_asset_metadata: Object<Metadata>, offer_amount: u64
-    ): (u64, BigDecimal) {
-        let (coin_a_pool, coin_b_pool, coin_a_weight, coin_b_weight, swap_fee_rate) =
-            dex::pool_info(pair, true);
-        let (metadata_a, _) = dex::pool_metadata(pair);
-        let is_offer_a = metadata_a == offer_asset_metadata;
-        let (offer_pool, return_pool, offer_weight, return_weight) =
-            if (is_offer_a) {
-                (coin_a_pool, coin_b_pool, coin_a_weight, coin_b_weight)
-            } else {
-                (coin_b_pool, coin_a_pool, coin_b_weight, coin_a_weight)
-            };
-        let price_before =
-            get_spot_price(
-                offer_pool,
-                return_pool,
-                offer_weight,
-                return_weight
-            );
-        let (return_amount, _fee_amount) =
-            dex::swap_simulation(
-                offer_pool,
-                return_pool,
-                offer_weight,
-                return_weight,
-                offer_amount,
-                swap_fee_rate
-            );
-
-        let price_after =
-            get_spot_price(
-                offer_pool + offer_amount,
-                return_pool - return_amount,
-                offer_weight,
-                return_weight
-            );
-
-        (return_amount, get_price_impact(price_before, price_after))
-    }
+    // Responses
 
     struct ProvideSimulationResponse {
         return_amount: u64,
@@ -231,15 +42,245 @@ module dex_utils::dex_utils {
         fee_amounts: vector<u64>
     }
 
+    // view functions. Simulate and calculate price impact
+
     #[view]
+    /// Simulates a route swap on `0x1::dex`, returning the final amount received and the price impact for each pair.
+    ///
+    /// @param offer_asset_metadata: The metadata of the token being offered.
+    /// @param route: A vector of trading pairs that make up the swap route.
+    /// @param offer_amount: The amount of the offered token to be swapped.
+    /// @return A tuple containing:
+    ///         - The final amount received after completing the swap route.
+    ///         - A vector of price impacts for each pair along the route.
+    public fun get_route_swap_simulation(
+        offer_asset_metadata: Object<Metadata>,
+        route: vector<Object<Config>>,
+        offer_amount: u64
+    ): (u64, vector<BigDecimal>) {
+        let price_impacts: vector<BigDecimal> = vector[];
+
+        vector::for_each_ref(
+            &route,
+            |pair| {
+                // simulate swap
+                let (return_amount, price_impact) =
+                    get_swap_simulation(*pair, offer_asset_metadata, offer_amount);
+
+                // update next offer amount
+                offer_amount = return_amount;
+
+                // get next offer_asset_metdata
+                let (metadata_a, metadata_b) = dex::pool_metadata(*pair);
+                offer_asset_metadata =
+                    if (offer_asset_metadata == metadata_a) {
+                        metadata_b
+                    } else {
+                        metadata_a
+                    };
+
+                // append price impact
+                vector::push_back(&mut price_impacts, price_impact);
+            }
+        );
+
+        let return_amount = offer_amount;
+        (return_amount, price_impacts)
+    }
+
+    #[view]
+    /// Simulates a token swap on `0x1::dex`, returning the expected output amount and price impact.
+    ///
+    /// @param pair The trading pair to perform the swap on.
+    /// @param offer_asset_metadata Metadata of the token being offered.
+    /// @param offer_amount The amount of the offered token to swap.
+    /// @return A tuple containing:
+    ///         - The amount of the output token expected from the swap.
+    ///         - The price impact of the swap.
+    public fun get_swap_simulation(
+        pair: Object<Config>, offer_asset_metadata: Object<Metadata>, offer_amount: u64
+    ): (u64, BigDecimal) {
+        // get pool info
+        let (coin_a_pool, coin_b_pool, coin_a_weight, coin_b_weight, swap_fee_rate) =
+            dex::pool_info(pair, true);
+
+        // check coin type
+        let (metadata_a, _) = dex::pool_metadata(pair);
+        let is_offer_a = metadata_a == offer_asset_metadata;
+
+        // set arguments
+        let (offer_pool, return_pool, offer_weight, return_weight) =
+            if (is_offer_a) {
+                (coin_a_pool, coin_b_pool, coin_a_weight, coin_b_weight)
+            } else {
+                (coin_b_pool, coin_a_pool, coin_b_weight, coin_a_weight)
+            };
+
+        // get spot price before swap
+        let price_before =
+            get_spot_price(
+                offer_pool,
+                return_pool,
+                offer_weight,
+                return_weight
+            );
+
+        // simulate swap
+        let (return_amount, _fee_amount) =
+            dex::swap_simulation(
+                offer_pool,
+                return_pool,
+                offer_weight,
+                return_weight,
+                offer_amount,
+                swap_fee_rate
+            );
+
+        // get spot price after swap
+        let price_after =
+            get_spot_price(
+                offer_pool + offer_amount,
+                return_pool - return_amount,
+                offer_weight,
+                return_weight
+            );
+
+        (return_amount, get_price_impact(price_before, price_after))
+    }
+
+    #[view]
+    /// Calculates the amount of liquidity tokens returned for a given input of token amounts.
+    ///
+    /// @param pair: The liquidity pool pair to which tokens are being provided.
+    /// @param coin_a_amount_in: The amount of Coin A to provide.
+    /// @param coin_b_amount_in: The amount of Coin B to provide.
+    /// @return The amount of liquidity tokens to be minted for the provided tokens.
+    public fun provide_liquidity_cal(
+        pair: Object<Config>, coin_a_amount_in: u64, coin_b_amount_in: u64
+    ): u64 {
+        dex::get_provide_simulation(pair, coin_a_amount_in, coin_b_amount_in)
+    }
+
+    #[view]
+    /// Calculates the amount of liquidity tokens to be minted for the given token inputs, including price impact.
+    ///
+    /// @param pair: The liquidity pool pair to which tokens are being provided.
+    /// @param coin_a_amount_in: The amount of Coin A to provide.
+    /// @param coin_b_amount_in: The amount of Coin B to provide.
+    /// @return A tuple containing:
+    ///         - The amount of liquidity tokens to be minted.
+    ///         - The price impact resulting from the provided token amounts.
+    public fun provide_liquidity_cal_with_price_impact(
+        pair: Object<Config>, coin_a_amount_in: u64, coin_b_amount_in: u64
+    ): (u64, BigDecimal) {
+        // get price impact
+
+        // get current pool info
+        let (coin_a_amount, coin_b_amount, coin_a_weight, coin_b_weight, swap_fee_rate) =
+            dex::pool_info(pair, false);
+
+        // get current spot price
+        let price_before =
+            get_spot_price(
+                coin_a_amount,
+                coin_b_amount,
+                coin_a_weight,
+                coin_b_weight
+            );
+
+        // get spot price after liquidity provision
+        let price_after =
+            get_spot_price(
+                coin_a_amount + coin_a_amount_in,
+                coin_b_amount + coin_b_amount_in,
+                coin_a_weight,
+                coin_b_weight
+            );
+
+        // get price impact
+        let price_impact = get_price_impact(price_before, price_after);
+
+        // get return amount
+        let return_amount =
+            dex::get_provide_simulation(pair, coin_a_amount_in, coin_b_amount_in);
+
+        (return_amount, price_impact)
+    }
+
+    #[view]
+    #[deprecated]
+    /// **Deprecated**: Use `provide_liquidity_cal_with_price_impact` instead.
+    ///
+    /// Estimates the liquidity tokens to be minted when providing a single asset to the pool.
+    ///
+    /// @param pair: The liquidity pool pair to which the asset is being provided.
+    /// @param offer_asset_metadata: Metadata of the asset being offered.
+    /// @param amount_in: The amount of the offered asset.
+    /// @return A tuple containing:
+    ///         - The amount of liquidity tokens to be minted.
+    ///         - The price impact of the provided asset.
+    public fun single_asset_provide_liquidity_cal(
+        pair: Object<Config>, offer_asset_metadata: Object<Metadata>, amount_in: u64
+    ): (u64, BigDecimal) {
+        // get metadata
+        let (metadata_a, metadata_b) = dex::pool_metadata(pair);
+
+        // check coin types
+        let is_coin_b = metadata_b == offer_asset_metadata;
+        let is_coin_a = metadata_a == offer_asset_metadata;
+        assert!(is_coin_b || is_coin_a, error::invalid_argument(EINVALID_TOKEN));
+
+        // set amount in
+        let (coin_a_amount_in, coin_b_amount_in) =
+            if (is_coin_a) {
+                (amount_in, 0)
+            } else {
+                (0, amount_in)
+            };
+
+        provide_liquidity_cal_with_price_impact(pair, coin_a_amount_in, coin_b_amount_in)
+    }
+
+    #[view]
+    #[deprecated]
+    /// **Deprecated**: Use `provide_liquidity_cal_with_price_impact` instead.
+    ///
+    /// Calculates the amount of liquidity tokens to be minted for the given token inputs, including price impact.
+    ///
+    /// @param pair: The liquidity pool pair to which tokens are being provided.
+    /// @param coin_a_amount_in: The amount of Coin A to provide.
+    /// @param coin_b_amount_in: The amount of Coin B to provide.
+    /// @return A tuple containing:
+    ///         - The amount of liquidity tokens to be minted.
+    ///         - The price impact resulting from the provided token amounts.
+    public fun unproportional_provide_liquidity_cal(
+        pair: Object<Config>, coin_a_amount_in: u64, coin_b_amount_in: u64
+    ): (u64, BigDecimal) {
+        provide_liquidity_cal_with_price_impact(pair, coin_a_amount_in, coin_b_amount_in)
+    }
+
+    #[view]
+    /// Simulates providing liquidity to a stableswap pool and returns the expected minted amount and associated fees.
+    ///
+    /// @param pool_obj: The stableswap pool object to which liquidity is being added.
+    /// @param amounts: A vector of token amounts to provide, corresponding to the pool's assets.
+    /// @return A `ProvideSimulationResponse` struct containing:
+    ///         - `return_amount`: The expected amount of liquidity tokens to be minted.
+    ///         - `fee_coin_metadata`: Metadata of the fee tokens.
+    ///         - `fee_coin_denoms`: Denominations of the fee tokens.
+    ///         - `fee_amounts`: Amounts of each fee charged.
     public fun stableswap_provide_simulation(
         pool_obj: Object<Pool>, amounts: vector<u64>
     ): ProvideSimulationResponse {
+        // simulate liquidity provision
         let (return_amount, fee_amounts) =
             stableswap::provide_simulation(pool_obj, amounts);
+
+        // get coin metadata and denoms
         let pool = stableswap::get_pool(pool_obj);
         let (coin_metadata, coin_denoms, _, _, _) =
             stableswap::unpack_pool_response(&pool);
+
         return ProvideSimulationResponse {
             return_amount: return_amount,
             fee_coin_metadata: coin_metadata,
@@ -249,32 +290,38 @@ module dex_utils::dex_utils {
     }
 
     #[view]
+    /// Simulates withdrawing liquidity from a stableswap pool, returning expected token outputs and associated fees.
+    ///
+    /// @param pool_obj: The stableswap pool object from which liquidity is being withdrawn.
+    /// @param liquidity_amount: The amount of liquidity tokens to burn for withdrawal.
+    /// @return A `WithdrawSimulationResponse` struct containing:
+    ///         - `return_coin_metadata`: Metadata of the tokens returned from the pool.
+    ///         - `return_coin_denoms`: Denominations of the returned tokens.
+    ///         - `return_amounts`: Amounts of each token returned.
+    ///         - `fee_coin_metadata`: Metadata of the tokens used to pay fees.
+    ///         - `fee_coin_denoms`: Denominations of the fee tokens.
+    ///         - `fee_amounts`: Amounts of each fee charged.
     public fun stableswap_withdraw_simulation(
         pool_obj: Object<Pool>, liquidity_amount: u64
     ): WithdrawSimulationResponse {
+        // get coin metadata and denoms
         let pool = stableswap::get_pool(pool_obj);
         let (coin_metadata, coin_denoms, pool_amounts, _, _) =
             stableswap::unpack_pool_response(&pool);
 
+        // get current total supply
         let total_supply = option::extract(&mut fungible_asset::supply(pool_obj));
-        let return_amounts = vector[];
 
-        let n = vector::length(&coin_metadata);
-        let i = 0;
-        while (i < n) {
-            let pool_amount = *vector::borrow(&pool_amounts, i);
-            let return_amount =
-                (
-                    mul_div_u128(
-                        (pool_amount as u128),
-                        (liquidity_amount as u128),
-                        total_supply
-                    ) as u64
-                );
-
-            vector::push_back(&mut return_amounts, return_amount);
-            i = i + 1;
-        };
+        // ger return amounts
+        let return_amounts = vector::map_ref(
+            &pool_amounts,
+            // return amount = pool_amount * liquidity_amount / total_supply
+            |pool_amount| mul_div_u128(
+                (*pool_amount as u128),
+                (liquidity_amount as u128),
+                total_supply
+            ) as u64
+        );
 
         return WithdrawSimulationResponse {
             return_coin_metadata: coin_metadata,
@@ -287,24 +334,41 @@ module dex_utils::dex_utils {
     }
 
     #[view]
+    /// Simulates a single-asset withdrawal from a stableswap pool, returning the expected output and associated fees.
+    ///
+    /// @param pool_obj: The stableswap pool object from which liquidity is being withdrawn.
+    /// @param return_coin_metadata: Metadata of the token to be withdrawn from the pool.
+    /// @param liquidity_amount: The amount of liquidity tokens to burn for the withdrawal.
+    /// @return A `WithdrawSimulationResponse` struct containing:
+    ///         - `return_coin_metadata`: Metadata of the returned token.
+    ///         - `return_coin_denoms`: Denomination of the returned token.
+    ///         - `return_amounts`: Amount of the token returned.
+    ///         - `fee_coin_metadata`: Metadata of the tokens used to pay fees.
+    ///         - `fee_coin_denoms`: Denominations of the fee tokens.
+    ///         - `fee_amounts`: Amounts of each fee charged.
     public fun stableswap_single_asset_withdraw_simulation(
         pool_obj: Object<Pool>,
         return_coin_metadata: Object<Metadata>,
         liquidity_amount: u64
     ): WithdrawSimulationResponse {
+        // get coin metadata and denoms
         let pool = stableswap::get_pool(pool_obj);
         let (coin_metadata, coin_denoms, _, _, _) =
             stableswap::unpack_pool_response(&pool);
+
+        // find return coin index
         let (found, return_index) = vector::index_of(
             &coin_metadata, &return_coin_metadata
         );
         assert!(found, error::invalid_argument(EINVALID_TOKEN));
 
+        // get return amount and fee amount
         let (return_amount, fee_amount) =
             stableswap::single_asset_withdraw_simulation(
                 pool_obj, liquidity_amount, return_index
             );
 
+        // load return coin denom
         let return_coin_denom = *vector::borrow(&coin_denoms, return_index);
 
         return WithdrawSimulationResponse {
@@ -319,6 +383,13 @@ module dex_utils::dex_utils {
 
     // entry functions
 
+    /// Provides liquidity to a stableswap pool and stakes the resulting liquidity tokens to a validator.
+    ///
+    /// @param account: The signer account initiating the transaction.
+    /// @param pool_obj: The stableswap pool object to which liquidity is being provided.
+    /// @param coin_amounts: A vector of token amounts to provide, corresponding to the pool's assets.
+    /// @param min_liquidity: Optional, minimum amount of liquidity tokens to receive; aborts if not met.
+    /// @param validator: The Bech32-encoded address of the validator to stake the liquidity tokens with.
     public entry fun stableswap_provide_stake(
         account: &signer,
         pool_obj: Object<Pool>,
@@ -326,27 +397,28 @@ module dex_utils::dex_utils {
         min_liquidity: Option<u64>,
         validator: String
     ) {
-        let coins: vector<FungibleAsset> = vector[];
+        // get coin metadata
         let (coin_metadata, _, _, _) = stableswap::pool_info(pool_obj);
 
-        let i = 0;
-        let n = vector::length(&coin_amounts);
-        while (i < n) {
-            let metadata = *vector::borrow(&coin_metadata, i);
-            let amount = *vector::borrow(&coin_amounts, i);
-            vector::push_back(
-                &mut coins,
-                coin::withdraw(account, metadata, amount)
-            );
-            i = i + 1;
-        };
+        // withdraw coins
+        let coins: vector<FungibleAsset> = vector::zip_map_ref(
+            &coin_metadata,
+            &coin_amounts,
+            |metadata, amount| coin::withdraw(account, *metadata, *amount)
+        );
 
+        // provide liquidity
         let liquidity_token = stableswap::provide_liquidity(
             pool_obj, coins, min_liquidity
         );
+
+        // get liquidity amount
         let liquidity_amount = fungible_asset::amount(&liquidity_token);
 
+        // deposit liquidity token
         coin::deposit(signer::address_of(account), liquidity_token);
+
+        // delegate to validator
         cosmos::delegate(
             account,
             validator,
@@ -355,6 +427,14 @@ module dex_utils::dex_utils {
         );
     }
 
+    /// Provides liquidity to a dex pool and stakes the resulting liquidity tokens to a validator.
+    ///
+    /// @param account: The signer account initiating the transaction.
+    /// @param pair: The liquidity pool pair to which tokens are being provided.
+    /// @param coin_a_amount_in: The amount of Coin A to provide.
+    /// @param coin_b_amount_in: The amount of Coin B to provide.
+    /// @param min_liquidity: Optional, minimum amount of liquidity tokens to receive; aborts if not met.
+    /// @param validator: The Bech32-encoded address of the validator to stake the liquidity tokens with.
     public entry fun provide_stake(
         account: &signer,
         pair: Object<Config>,
@@ -363,20 +443,23 @@ module dex_utils::dex_utils {
         min_liquidity: Option<u64>,
         validator: String
     ) {
+        // get metadata
         let (metadata_a, metadata_b) = dex::pool_metadata(pair);
 
-        // calculate the best coin amount
-        let (coin_a_amount_in, coin_b_amount_in) =
-            get_exact_provide_amount(pair, coin_a_amount_in, coin_b_amount_in);
+        // withdraw coins
         let coin_a = coin::withdraw(account, metadata_a, coin_a_amount_in);
         let coin_b = coin::withdraw(account, metadata_b, coin_b_amount_in);
 
+        // provide liquidity
         let liquidity_token = dex::provide_liquidity(pair, coin_a, coin_b, min_liquidity);
 
+        // get liquidity token amount
         let provide_amount = fungible_asset::amount(&liquidity_token);
 
+        // deposit liquidity token
         coin::deposit(signer::address_of(account), liquidity_token);
 
+        // delegate to validator
         cosmos::delegate(
             account,
             validator,
@@ -385,6 +468,17 @@ module dex_utils::dex_utils {
         );
     }
 
+    #[deprecated]
+    /// **Deprecated**: Use `provide_stake` instead.
+    ///
+    /// Provides liquidity to a dex pool using a single asset, and stakes the resulting liquidity tokens to a validator.
+    ///
+    /// @param account: The signer account initiating the transaction.
+    /// @param pair: The liquidity pool pair to which tokens are being provided.
+    /// @param offer_asset_metadata: Metadata of the asset being offered.
+    /// @param amount_in: The amount of the offered asset.
+    /// @param min_liquidity: Optional, minimum amount of liquidity tokens to receive; aborts if not met.
+    /// @param validator: The Bech32-encoded address of the validator to stake the liquidity tokens with.
     public entry fun single_asset_provide_stake(
         account: &signer,
         pair: Object<Config>,
@@ -393,16 +487,20 @@ module dex_utils::dex_utils {
         min_liquidity: Option<u64>,
         validator: String
     ) {
-        let addr = signer::address_of(account);
+        // withdraw coin
         let provide_coin = coin::withdraw(account, offer_asset_metadata, amount_in);
 
+        // provide liquidity
         let liquidity_token =
             dex::single_asset_provide_liquidity(pair, provide_coin, min_liquidity);
 
+        // get liquidity token amount
         let provide_amount = fungible_asset::amount(&liquidity_token);
 
-        coin::deposit(addr, liquidity_token);
+        // deposit liquidity token
+        coin::deposit(signer::address_of(account), liquidity_token);
 
+        // delegate to validator
         cosmos::delegate(
             account,
             validator,
@@ -411,6 +509,16 @@ module dex_utils::dex_utils {
         );
     }
 
+    #[deprecated]
+    /// **Deprecated**: Use `0x1::dex::provide_liquidity_script` instead.
+    ///
+    /// Provides liquidity to a DEX pool using unproportional token amounts.
+    ///
+    /// @param account The signer account initiating the transaction.
+    /// @param pair The liquidity pool pair to which liquidity is being provided.
+    /// @param coin_a_amount_in The amount of Coin A to provide.
+    /// @param coin_b_amount_in The amount of Coin B to provide.
+    /// @param min_liquidity Optional minimum amount of liquidity tokens to receive; aborts if not met.
     public entry fun unproportional_provide(
         account: &signer,
         pair: Object<Config>,
@@ -418,18 +526,25 @@ module dex_utils::dex_utils {
         coin_b_amount_in: u64,
         min_liquidity: Option<u64>
     ) {
-        let liquidity_token =
-            unproportional_provide_internal(
-                account,
-                pair,
-                coin_a_amount_in,
-                coin_b_amount_in,
-                min_liquidity
-            );
-
-        coin::deposit(signer::address_of(account), liquidity_token);
+        dex::provide_liquidity_script(
+            account,
+            pair,
+            coin_a_amount_in,
+            coin_b_amount_in,
+            min_liquidity
+        )
     }
 
+    /// **Deprecated**: Use `provide_stake` instead.
+    ///
+    /// Provides liquidity to a DEX pool using unproportional token amounts.
+    ///
+    /// @param account: The signer account initiating the transaction.
+    /// @param pair: The liquidity pool pair to which tokens are being provided.
+    /// @param coin_a_amount_in: The amount of Coin A to provide.
+    /// @param coin_b_amount_in: The amount of Coin B to provide.
+    /// @param min_liquidity: Optional, minimum amount of liquidity tokens to receive; aborts if not met.
+    /// @param validator: The Bech32-encoded address of the validator to stake the liquidity tokens with.
     public entry fun unproportional_provide_stake(
         account: &signer,
         pair: Object<Config>,
@@ -438,27 +553,27 @@ module dex_utils::dex_utils {
         min_liquidity: Option<u64>,
         validator: String
     ) {
-        let liquidity_token =
-            unproportional_provide_internal(
-                account,
-                pair,
-                coin_a_amount_in,
-                coin_b_amount_in,
-                min_liquidity
-            );
-
-        let provide_amount = fungible_asset::amount(&liquidity_token);
-
-        coin::deposit(signer::address_of(account), liquidity_token);
-
-        cosmos::delegate(
+        provide_stake(
             account,
-            validator,
-            object::convert<Config, Metadata>(pair),
-            provide_amount
-        );
+            pair,
+            coin_a_amount_in,
+            coin_b_amount_in,
+            min_liquidity,
+            validator
+        )
     }
 
+    /// **Deprecated**: Use `vip::lock_staking::provide_delegate` instead.
+    ///
+    /// Provides liquidity to a DEX pool with unproportional token amounts and delegates the liquidity tokens to a validator with a lock period.
+    ///
+    /// @param account The signer account initiating the transaction.
+    /// @param pair The liquidity pool pair to which tokens are being provided.
+    /// @param coin_a_amount_in The amount of Coin A to provide.
+    /// @param coin_b_amount_in The amount of Coin B to provide.
+    /// @param min_liquidity Optional minimum amount of liquidity tokens to receive; aborts if not met.
+    /// @param release_time The LockStake release time (lock duration or timestamp).
+    /// @param validator The Bech32-encoded address of the validator to stake the liquidity tokens with.
     public entry fun unproportional_provide_lock_stake(
         account: &signer,
         pair: Object<Config>,
@@ -468,34 +583,28 @@ module dex_utils::dex_utils {
         release_time: u64,
         validator: String
     ) {
-        let liquidity_token =
-            unproportional_provide_internal(
-                account,
-                pair,
-                coin_a_amount_in,
-                coin_b_amount_in,
-                min_liquidity
-            );
-
-        let provide_amount = fungible_asset::amount(&liquidity_token);
-        let liquidity_token_metadata =
-            fungible_asset::metadata_from_asset(&liquidity_token);
-
-        coin::deposit(signer::address_of(account), liquidity_token);
-
-        lock_staking::delegate(
+        lock_staking::provide_delegate(
             account,
-            liquidity_token_metadata,
-            provide_amount,
+            object::convert(pair),
+            coin_a_amount_in,
+            coin_b_amount_in,
+            min_liquidity,
             release_time,
             validator
-        );
+        )
     }
 
+    /// Executes a multi-hop swap along a specified route of trading pairs.
+    ///
+    /// @param account: The signer account initiating the swap.
+    /// @param offer_asset_metadata: Metadata of the token being offered for the swap.
+    /// @param route: A vector of trading pairs representing the swap path.
+    /// @param amount: The amount of the offered token to swap.
+    /// @param min_return_amount: Optional, minimum acceptable amount to receive from the swap; aborts if not met.
     public entry fun route_swap(
         account: &signer,
         offer_asset_metadata: Object<Metadata>,
-        route: vector<Object<Config>>, // path of pair
+        route: vector<Object<Config>>,
         amount: u64,
         min_return_amount: Option<u64>
     ) {
@@ -516,111 +625,25 @@ module dex_utils::dex_utils {
 
     // public functions
 
+    /// Executes a raw multi-hop swap along a specified route of trading pairs using a `FungibleAsset`.
+    ///
+    /// @param offer_coin: The offered coin as a `FungibleAsset`.
+    /// @param route: A vector of trading pairs representing the swap path.
     public fun route_swap_raw(
-        offer_coin: FungibleAsset, route: vector<Object<Config>> // path of pair
+        offer_coin: FungibleAsset, route: vector<Object<Config>>
     ): FungibleAsset {
-        let index = 0;
-        let len = vector::length(&route);
-        while (index < len) {
-            let pair = vector::borrow(&route, index);
-            offer_coin = dex::swap(*pair, offer_coin);
-            index = index + 1;
-        };
+        vector::for_each_ref(
+            &route,
+            |pair| {
+                offer_coin = dex::swap(*pair, offer_coin);
+            }
+        );
+
         let return_coin = offer_coin; // just for clarity
         return_coin
     }
 
     // util functions
-
-    fun unproportional_provide_internal(
-        account: &signer,
-        pair: Object<Config>,
-        coin_a_amount_in: u64,
-        coin_b_amount_in: u64,
-        min_liquidity: Option<u64>
-    ): FungibleAsset {
-        let (metadata_a, metadata_b) = dex::pool_metadata(pair);
-        let pair_metadata = object::convert<Config, Metadata>(pair);
-
-        // withdraw coins
-        let coin_a = coin::withdraw(account, metadata_a, coin_a_amount_in);
-        let coin_b = coin::withdraw(account, metadata_b, coin_b_amount_in);
-
-        // calculate the proportional coin amount
-        let (coin_a_proportional_amount_in, coin_b_proportional_amount_in) =
-            get_exact_provide_amount(pair, coin_a_amount_in, coin_b_amount_in);
-
-        // provide proportional
-        let liquidity_token = fungible_asset::zero(pair_metadata);
-
-        if (coin_a_proportional_amount_in + coin_b_proportional_amount_in != 0) {
-            let liquidity_token_ =
-                dex::provide_liquidity(
-                    pair,
-                    fungible_asset::extract(&mut coin_a, coin_a_proportional_amount_in),
-                    fungible_asset::extract(&mut coin_b, coin_b_proportional_amount_in),
-                    option::none()
-                );
-
-            fungible_asset::merge(&mut liquidity_token, liquidity_token_);
-        };
-
-        // single asset provide
-        if (fungible_asset::amount(&coin_a) == 0) {
-            fungible_asset::destroy_zero(coin_a);
-        } else {
-            let liquidity_token_ =
-                dex::single_asset_provide_liquidity(pair, coin_a, option::none());
-            fungible_asset::merge(&mut liquidity_token, liquidity_token_);
-        };
-
-        if (fungible_asset::amount(&coin_b) == 0) {
-            fungible_asset::destroy_zero(coin_b);
-        } else {
-            let liquidity_token_ =
-                dex::single_asset_provide_liquidity(pair, coin_b, option::none());
-            fungible_asset::merge(&mut liquidity_token, liquidity_token_);
-        };
-
-        // check min return
-        assert!(
-            *option::borrow_with_default(&min_liquidity, &0)
-                <= fungible_asset::amount(&liquidity_token),
-            error::invalid_state(EMIN_RETURN)
-        );
-
-        liquidity_token
-    }
-
-    fun get_exact_provide_amount(
-        pair: Object<Config>, coin_a_amount_in: u64, coin_b_amount_in: u64
-    ): (u64, u64) {
-        let pool_info = dex::get_pool_info(pair);
-        let coin_a_amount = dex::get_coin_a_amount_from_pool_info_response(&pool_info);
-        let coin_b_amount = dex::get_coin_b_amount_from_pool_info_response(&pool_info);
-        let total_share = option::extract(&mut fungible_asset::supply(pair));
-
-        // calculate the best coin amount
-        if (total_share == 0) {
-            (coin_a_amount_in, coin_b_amount_in)
-        } else {
-            let a_share_ratio =
-                bigdecimal::from_ratio_u64(coin_a_amount_in, coin_a_amount);
-            let b_share_ratio =
-                bigdecimal::from_ratio_u64(coin_b_amount_in, coin_b_amount);
-            if (bigdecimal::gt(a_share_ratio, b_share_ratio)) {
-                coin_a_amount_in = bigdecimal::mul_by_u64_truncate(
-                    b_share_ratio, coin_a_amount
-                );
-            } else {
-                coin_b_amount_in = bigdecimal::mul_by_u64_truncate(
-                    a_share_ratio, coin_b_amount
-                );
-            };
-
-            (coin_a_amount_in, coin_b_amount_in)
-        }
-    }
 
     fun get_spot_price(
         base_pool: u64,
@@ -634,77 +657,6 @@ module dex_utils::dex_utils {
         )
     }
 
-    /// a^x = 1 + sigma[(k^n)/n!]
-    /// k = x * ln(a)
-    fun pow(base: BigDecimal, exp: BigDecimal): BigDecimal {
-        assert!(
-            !bigdecimal::is_zero(base) && bigdecimal::lt(base, bigdecimal::from_u64(2)),
-            error::invalid_argument(123)
-        );
-
-        let res = bigdecimal::one();
-        let (ln_a, neg) = ln(base);
-        let k = bigdecimal::mul(ln_a, exp);
-        let comp = k;
-        let index = 1;
-        let subs: vector<BigDecimal> = vector[];
-
-        let precision = bigdecimal::from_scaled(biguint::from_u64(100000));
-        while (bigdecimal::gt(comp, precision)) {
-            if (index & 1 == 1 && neg) {
-                vector::push_back(&mut subs, comp)
-            } else {
-                res = bigdecimal::add(res, comp)
-            };
-
-            comp = bigdecimal::div_by_u64(bigdecimal::mul(comp, k), index + 1);
-            index = index + 1;
-        };
-
-        let index = 0;
-        while (index < vector::length(&subs)) {
-            let comp = vector::borrow(&subs, index);
-            res = bigdecimal::sub(res, *comp);
-            index = index + 1;
-        };
-
-        res
-    }
-
-    fun ln(num: BigDecimal): (BigDecimal, bool) {
-        let one = bigdecimal::one();
-        let (a, a_neg) =
-            if (bigdecimal::ge(num, one)) {
-                (bigdecimal::sub(num, one), false)
-            } else {
-                (bigdecimal::sub(one, num), true)
-            };
-
-        let res = bigdecimal::zero();
-        let comp = a;
-        let index = 1;
-
-        let precision = bigdecimal::from_scaled(biguint::from_u64(100000));
-        while (bigdecimal::gt(comp, precision)) {
-            if (index & 1 == 0 && !a_neg) {
-                res = bigdecimal::sub(res, comp);
-            } else {
-                res = bigdecimal::add(res, comp);
-            };
-
-            // comp(old) = a ^ n / n
-            // comp(new) = comp(old) * a * n / (n + 1) = a ^ (n + 1) / (n + 1)
-            comp = bigdecimal::div_by_u64(
-                bigdecimal::mul_by_u64(bigdecimal::mul(comp, a), index), // comp * a * index
-                index + 1
-            );
-
-            index = index + 1;
-        };
-
-        (res, a_neg)
-    }
-
     fun get_price_impact(
         price_before: BigDecimal, price_after: BigDecimal
     ): BigDecimal {
@@ -713,80 +665,6 @@ module dex_utils::dex_utils {
         } else {
             bigdecimal::div(bigdecimal::sub(price_after, price_before), price_after)
         }
-    }
-
-    fun single_asset_provide_liquidity_cal_internal(
-        coin_a_amount: u64,
-        coin_b_amount: u64,
-        coin_a_weight: BigDecimal,
-        coin_b_weight: BigDecimal,
-        swap_fee_rate: BigDecimal,
-        total_share: u128,
-        is_coin_a: bool,
-        amount_in: u64
-    ): (u64, BigDecimal) {
-        let price_before =
-            get_spot_price(
-                coin_a_amount,
-                coin_b_amount,
-                coin_a_weight,
-                coin_b_weight
-            );
-
-        assert!(total_share != 0, error::invalid_state(1));
-        let (normalized_weight, pool_amount_in) =
-            if (is_coin_a) {
-                let normalized_weight =
-                    bigdecimal::div(
-                        coin_a_weight,
-                        bigdecimal::add(coin_a_weight, coin_b_weight)
-                    );
-
-                coin_a_amount = coin_a_amount + amount_in;
-                let pool_amount_in = coin_a_amount;
-                (normalized_weight, pool_amount_in)
-            } else {
-                let normalized_weight =
-                    bigdecimal::div(
-                        coin_b_weight,
-                        bigdecimal::add(coin_a_weight, coin_b_weight)
-                    );
-
-                coin_b_amount = coin_b_amount + amount_in;
-                let pool_amount_in = coin_b_amount;
-                (normalized_weight, pool_amount_in)
-            };
-        let price_after =
-            get_spot_price(
-                coin_a_amount,
-                coin_b_amount,
-                coin_a_weight,
-                coin_b_weight
-            );
-
-        // compute fee amount with the assumption that we will swap (1 - normalized_weight) of amount_in
-        let adjusted_swap_amount =
-            bigdecimal::mul_by_u128_truncate(
-                bigdecimal::sub(bigdecimal::one(), normalized_weight),
-                (amount_in as u128)
-            );
-        let fee_amount =
-            bigdecimal::mul_by_u128_truncate(swap_fee_rate, adjusted_swap_amount);
-
-        // actual amount in after deducting fee amount
-        let adjusted_amount_in = amount_in - (fee_amount as u64);
-
-        // calculate new total share and new liquidity
-        let base =
-            bigdecimal::from_ratio_u128(
-                (adjusted_amount_in + pool_amount_in as u128),
-                (pool_amount_in as u128)
-            );
-        let pool_ratio = pow(base, normalized_weight);
-        let new_total_share = bigdecimal::mul_by_u128_truncate(pool_ratio, total_share);
-
-        ((new_total_share - total_share as u64),
-        get_price_impact(price_before, price_after))
     }
 
     fun mul_div_u128(a: u128, b: u128, c: u128): u128 {
