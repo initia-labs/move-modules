@@ -5,6 +5,7 @@ module vip_utils::vip_utils {
     use initia_std::bigdecimal::{Self, BigDecimal};
 
     use vip::weight_vote;
+    use vip::vesting;
 
     public entry fun vote_with_amount(
         account: &signer,
@@ -20,6 +21,18 @@ module vip_utils::vip_utils {
         );
 
         weight_vote::vote(account, cycle, bridge_ids, weights)
+    }
+
+    #[view]
+    public fun get_operator_last_claimed_stage(
+        bridge_id: u64, version: u64
+    ): u64 {
+        // If not registered, return 0
+        if (!vesting::is_operator_vesting_store_registered(bridge_id, version)) {
+            return 0
+        };
+
+        return vesting::get_operator_last_claimed_stage(bridge_id, version)
     }
 
     fun get_weight_ratio(total: u64, amount: u64): BigDecimal {
